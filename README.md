@@ -541,8 +541,7 @@ const sendMsg = await sock.sendMessage(id, templateMessage)
 ## Forwarding Messages
 
 ``` ts
-const msg = getMessageFromStore('455@s.whatsapp.net', 'HSJHJWH7323HSJSJ') // implement this on your end
-await sock.sendMessage('1234@s.whatsapp.net', { forward: msg }) // WA forward the message!
+await sock.sendMessage('1234@s.whatsapp.net', { forward: message }) // WA forward the message!
 ```
 
 ## Reading Messages
