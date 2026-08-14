@@ -17,10 +17,10 @@ import {
 	jidEncode,
 	jidNormalizedUser
 } from '../WABinary'
-import { makeBusinessSocket } from './business'
+import { makeUsernameSocket } from './username'
 
 export const makeCommunitiesSocket = (config: SocketConfig) => {
-	const sock = makeBusinessSocket(config)
+	const sock = makeUsernameSocket(config)
 	const { authState, ev, query, upsertMessage } = sock
 
 	const communityQuery = async (jid: string, type: 'get' | 'set', content: BinaryNode[]) =>

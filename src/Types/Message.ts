@@ -178,6 +178,9 @@ export type AnyMediaMessageContent = (
 			jpegThumbnail?: string
 	  } & Mentionable &
 			Contextable &
+			Buttonable &
+			Templatable &
+			Interactiveable &
 			WithDimensions)
 	| ({
 			video: WAMediaUpload
@@ -188,6 +191,9 @@ export type AnyMediaMessageContent = (
 			ptv?: boolean
 	  } & Mentionable &
 			Contextable &
+			Buttonable &
+			Templatable &
+			Interactiveable &
 			WithDimensions)
 	| {
 			audio: WAMediaUpload
@@ -205,7 +211,10 @@ export type AnyMediaMessageContent = (
 			mimetype: string
 			fileName?: string
 			caption?: string
-	  } & Contextable)
+	  } & Contextable &
+			Buttonable &
+			Templatable &
+			Interactiveable)
 ) & { mimetype?: string } & Editable & {
 		/** key of the parent albumMessage to associate this media with */
 		albumParentKey?: WAMessageKey
@@ -229,20 +238,124 @@ export type WASendableProduct = Omit<proto.Message.ProductMessage.IProductSnapsh
 	productImage: WAMediaUpload
 }
 
+export interface Carousel {
+	image?: WAMediaUpload
+	video?: WAMediaUpload
+	product?: WASendableProduct
+	title?: string
+	body?: string
+	caption?: string
+	footer?: string
+	nativeFlow?: unknown[]
+}
+
+/** Extra fields accepted by the rich/AI message composers */
+export type RichMessageHelpers = {
+	code?: string
+	links?: {
+		text: string
+		title?: string
+		url: string
+		displayName?: string
+		sources?: {
+			displayName?: string
+			subtitle?: string
+			url?: string
+		}[]
+	}[]
+	table?: string[][]
+}
+
+/** Add simple response buttons to the message */
+type Buttonable = {
+	buttons?: proto.Message.ButtonsMessage.IButton[]
+}
+
+/** Add hydrated template buttons to the message (conflicts with simple buttons) */
+type Templatable = {
+	templateButtons?: proto.IHydratedTemplateButton[]
+	footer?: string
+}
+
+type Interactiveable = {
+	/** add native-flow buttons to the message (conflicts with simple buttons) */
+	interactiveButtons?: proto.Message.InteractiveMessage.NativeFlowMessage.INativeFlowButton[]
+	nativeFlow?: unknown[]
+	optionText?: string
+	optionTitle?: string
+	offerText?: string
+	offerCode?: string
+	offerUrl?: string
+	offerExpiration?: number
+	interactiveAsTemplate?: boolean
+	title?: string
+	subtitle?: string
+	footer?: string
+	hasMediaAttachment?: boolean
+}
+
+type Shopable = {
+	shop?: proto.Message.InteractiveMessage.IShopMessage
+	title?: string
+	subtitle?: string
+	footer?: string
+	hasMediaAttachment?: boolean
+}
+
+type Collectionable = {
+	collection?: proto.Message.InteractiveMessage.ICollectionMessage
+	title?: string
+	subtitle?: string
+	footer?: string
+	hasMediaAttachment?: boolean
+}
+
+type Listable = {
+	/** Sections of a list message */
+	sections?: proto.Message.ListMessage.ISection[]
+	/** Title of a list message */
+	title?: string
+	/** Text of the button on the list (required) */
+	buttonText?: string
+	/** ListType of a list message */
+	listType?: proto.Message.ListMessage.ListType
+}
+
+type Cardsable = {
+	cards?: Carousel[]
+	title?: string
+	subtitle?: string
+	footer?: string
+}
+
 export type AnyRegularMessageContent = (
 	| ({
 			text: string
 			linkPreview?: WAUrlInfo | null
 	  } & Mentionable &
 			Contextable &
-			Editable)
+			Editable &
+			Buttonable &
+			Templatable &
+			Interactiveable &
+			Shopable &
+			Collectionable &
+			Cardsable &
+			Listable)
 	| AnyMediaMessageContent
 	| { event: EventMessageOptions }
 	| ({
 			poll: PollMessageOptions
 	  } & Mentionable &
 			Contextable &
-			Editable)
+			Editable &
+			Buttonable &
+			Templatable &
+			Interactiveable &
+			Shopable &
+			Collectionable &
+			Cardsable &
+			Listable)
 	| ({
 			album: AlbumMessageOptions
 	  } & Contextable &
@@ -281,10 +394,21 @@ export type AnyRegularMessageContent = (
 			body?: string
 			footer?: string
 	  }
+	| {
+			richResponse:
+				| {
+						text: string
+						code?: string
+						language?: string
+						botJid?: string
+				  }
+				| unknown[]
+	  }
 	| SharePhoneNumber
 	| RequestPhoneNumber
 ) &
-	ViewOnce
+	ViewOnce &
+	RichMessageHelpers
 
 export type AnyMessageContent =
 	| AnyRegularMessageContent

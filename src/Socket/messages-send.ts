@@ -1,5 +1,6 @@
 import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
+import { randomBytes } from 'crypto'
 import { proto } from '../../WAProto/index.js'
 import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
 import type {
@@ -27,6 +28,8 @@ import {
 	generateMessageIDV2,
 	generateParticipantHashV2,
 	generateWAMessage,
+	generateWAMessageFromContent,
+	delay,
 	getStatusCodeForMediaRetry,
 	getUrlFromDirectPath,
 	getWAUploadToServer,
@@ -35,6 +38,21 @@ import {
 	parseAndInjectE2ESessions,
 	unixTimestampSeconds
 } from '../Utils'
+import {
+	captureUnifiedResponse,
+	generateCodeBlockContent,
+	generateLatexInlineImageContent,
+	generateLatexImageContent,
+	generateListContent,
+	generateMarkdownContent,
+	generateRichMessageContent,
+	generateTableContent,
+	generateUnifiedResponseContent,
+	renderLatexToPng,
+	type LatexExpression,
+	type RenderLatexFn,
+	type UploadFn
+} from '../Utils/message-composer'
 import { getUrlInfo } from '../Utils/link-preview'
 import { makeKeyedMutex, makeMutex } from '../Utils/make-mutex'
 import { getMessageReportingToken, shouldIncludeReportingToken } from '../Utils/reporting-utils'
@@ -58,6 +76,7 @@ import {
 	isJidBot,
 	isJidGroup,
 	isJidMetaAI,
+	STORIES_JID,
 	isLidUser,
 	isPnUser,
 	jidDecode,
@@ -69,6 +88,55 @@ import {
 } from '../WABinary'
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeNewsletterSocket } from './newsletter'
+
+type LatexOptionsInput =
+	| string
+	| {
+			text?: string
+			formula?: string
+			latex?: string
+			caption?: string
+			expressions?: (string | LatexExpression)[]
+			headerText?: string
+			footer?: string
+	  }
+
+const normalizeLatexOptions = (
+	options: LatexOptionsInput
+): {
+	expressions: LatexExpression[]
+	text: string
+	headerText?: string
+	footer?: string
+} => {
+	let formulas: string[] = []
+	if (typeof options === 'string') {
+		formulas.push(options)
+	} else if (Array.isArray(options)) {
+		for (const e of options) {
+			if (typeof e === 'string') formulas.push(e)
+			else if (e?.latexExpression) formulas.push(e.latexExpression)
+		}
+	} else if (options && typeof options === 'object') {
+		if (options.formula) formulas.push(options.formula)
+		else if (options.latex) formulas.push(options.latex)
+		else if (options.expressions && Array.isArray(options.expressions)) {
+			for (const e of options.expressions) {
+				if (typeof e === 'string') formulas.push(e)
+				else if (e?.latexExpression) formulas.push(e.latexExpression)
+			}
+		} else if (options.text) formulas.push(options.text)
+	}
+
+	if (formulas.length === 0) formulas.push('E=mc^2')
+
+	return {
+		expressions: formulas.map(formula => ({ latexExpression: formula })),
+		text: typeof options === 'object' && !Array.isArray(options) ? (options.caption ?? options.text ?? '') : '',
+		headerText: typeof options === 'object' && !Array.isArray(options) ? options.headerText : undefined,
+		footer: typeof options === 'object' && !Array.isArray(options) ? options.footer : undefined
+	}
+}
 
 export const makeMessagesSocket = (config: SocketConfig) => {
 	const {
@@ -1245,6 +1313,31 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 	const waUploadToServer = getWAUploadToServer(config, refreshMediaConn)
 
+	const uploadUnencrypted = async (buffer: Buffer): Promise<{ url?: string; directPath?: string }> => {
+		const { promises: fsPromises } = await import('fs')
+		const { tmpdir } = await import('os')
+		const { join } = await import('path')
+		const { createHash } = await import('crypto')
+
+		const sha256B64 = createHash('sha256').update(buffer).digest('base64')
+		const tmpPath = join(tmpdir(), `wa_upload_${Date.now()}.png`)
+		await fsPromises.writeFile(tmpPath, buffer)
+		try {
+			const result = await waUploadToServer(tmpPath, {
+				mediaType: 'image',
+				fileEncSha256B64: sha256B64
+			})
+			return {
+				url: result.mediaUrl || getUrlFromDirectPath(result.directPath, mediaHost),
+				directPath: result.directPath
+			}
+		} finally {
+			try {
+				await fsPromises.unlink(tmpPath)
+			} catch {}
+		}
+	}
+
 	const waitForMsgMediaUpdate = bindWaitForEvent(ev, 'messages.media-update')
 
 	registerSocketEndHandler(() => {
@@ -1324,6 +1417,224 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			ev.emit('messages.update', [{ key: message.key, update: { message: message.message } }])
 
 			return message
+		},
+		sendTable: async (
+			jid: string,
+			title: string,
+			headers: string[],
+			rows: string[][],
+			quoted?: WAMessage,
+			options: { headerText?: string; footer?: string } = {}
+		) => {
+			const { message, messageId } = generateTableContent(title, headers, rows, quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendList: async (
+			jid: string,
+			title: string,
+			items: string[] | string[][],
+			quoted?: WAMessage,
+			options: { headerText?: string; footer?: string } = {}
+		) => {
+			const { message, messageId } = generateListContent(title, items, quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendCodeBlock: async (
+			jid: string,
+			code: string,
+			quoted?: WAMessage,
+			options: { title?: string; footer?: string; language?: string } = {}
+		) => {
+			const { message, messageId } = generateCodeBlockContent(code, quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendMarkdown: async (
+			jid: string,
+			text: string,
+			quoted?: WAMessage,
+			options: { botJid?: string; mentions?: string[] } = {}
+		) => {
+			const { message, messageId } = generateMarkdownContent(text, quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendRichMessage: async (
+			jid: string,
+			submessages: unknown[],
+			quoted?: WAMessage,
+			options: {
+				botJid?: string
+				mentions?: string[]
+				useMarkdown?: boolean
+				unifiedResponse?: { data: Uint8Array }
+			} = {}
+		) => {
+			const { message, messageId } = generateRichMessageContent(submessages, quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		captureUnifiedResponse,
+		sendUnifiedResponse: async (
+			jid: string,
+			quoted: WAMessage | undefined,
+			captured: { submessages: unknown[]; unifiedResponse: { data: Uint8Array } }
+		) => {
+			const { message, messageId } = generateUnifiedResponseContent(quoted, captured)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendLatexImage: async (
+			jid: string,
+			quoted: WAMessage | undefined,
+			options:
+				| string
+				| {
+						text?: string
+						formula?: string
+						latex?: string
+						caption?: string
+						expressions?: (string | LatexExpression)[]
+						headerText?: string
+						footer?: string
+				  },
+			renderLatexToPngFn?: RenderLatexFn,
+			uploadFn?: UploadFn
+		) => {
+			const { expressions, text, headerText, footer } = normalizeLatexOptions(options)
+			const renderFn = renderLatexToPngFn ?? renderLatexToPng
+			const uploadToWA = uploadFn ?? (async (buffer: Buffer) => uploadUnencrypted(buffer))
+			const { message, messageId } = await generateLatexImageContent(
+				quoted,
+				{ text, expressions, headerText, footer },
+				uploadToWA,
+				renderFn
+			)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendLatexInlineImage: async (
+			jid: string,
+			quoted: WAMessage | undefined,
+			options:
+				| string
+				| {
+						text?: string
+						formula?: string
+						latex?: string
+						caption?: string
+						expressions?: (string | LatexExpression)[]
+						headerText?: string
+						footer?: string
+				  },
+			renderLatexToPngFn?: RenderLatexFn,
+			uploadFn?: UploadFn
+		) => {
+			const { expressions, text, headerText, footer } = normalizeLatexOptions(options)
+			const renderFn = renderLatexToPngFn ?? renderLatexToPng
+			const uploadToWA = uploadFn ?? (async (buffer: Buffer) => uploadUnencrypted(buffer))
+			const { message, messageId } = await generateLatexInlineImageContent(
+				quoted,
+				{ text, expressions, headerText, footer },
+				uploadToWA,
+				renderFn
+			)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendStatusMentions: async (content: AnyMessageContent, jids: string[] = []) => {
+			const userJid = jidNormalizedUser(authState.creds.me!.id)
+			const allUsers = new Set<string>()
+			allUsers.add(userJid)
+
+			for (const id of jids) {
+				const isGroup = isJidGroup(id)
+				const isPrivate = isPnUser(id) || isLidUser(id)
+				if (isGroup) {
+					try {
+						const metadata = (cachedGroupMetadata && (await cachedGroupMetadata(id))) || (await groupMetadata(id))
+						for (const p of metadata.participants) {
+							allUsers.add(jidNormalizedUser(p.id))
+						}
+					} catch (error) {
+						logger.error({ jid: id, error }, 'error getting metadata for group')
+					}
+				} else if (isPrivate) {
+					allUsers.add(jidNormalizedUser(id))
+				}
+			}
+
+			const uniqueUsers = Array.from(allUsers)
+			const mediaContent = content as AnyMessageContent & {
+				image?: unknown
+				video?: unknown
+				audio?: unknown
+				backgroundColor?: string
+				font?: number
+			}
+			const isMedia = !!(mediaContent.image || mediaContent.video || mediaContent.audio)
+			const isAudio = !!mediaContent.audio
+
+			const messageContent: AnyMessageContent = { ...content } as AnyMessageContent
+			const backgroundColor =
+				mediaContent.backgroundColor ??
+				`#${Math.floor(Math.random() * 16777215)
+					.toString(16)
+					.padStart(6, '0')}`
+			const font = mediaContent.font ?? Math.floor(Math.random() * 9)
+
+			const fullMsg = await generateWAMessage(STORIES_JID, messageContent, {
+				logger,
+				userJid,
+				upload: waUploadToServer,
+				mediaCache: config.mediaCache,
+				options: config.options,
+				backgroundColor: isMedia && !isAudio ? undefined : backgroundColor,
+				font: isMedia ? undefined : font
+			})
+
+			await relayMessage(STORIES_JID, fullMsg.message!, {
+				messageId: fullMsg.key.id!,
+				statusJidList: uniqueUsers,
+				additionalNodes: [
+					{
+						tag: 'meta',
+						attrs: {},
+						content: [
+							{
+								tag: 'mentioned_users',
+								attrs: {},
+								content: jids.map(jid => ({ tag: 'to', attrs: { jid: jidNormalizedUser(jid) } }))
+							}
+						]
+					}
+				]
+			})
+
+			for (const id of jids) {
+				try {
+					const normalizedId = jidNormalizedUser(id)
+					const isPrivate = isPnUser(normalizedId) || isLidUser(normalizedId)
+					const type = isPrivate ? 'statusMentionMessage' : 'groupStatusMentionMessage'
+					const protocolMessage = {
+						[type]: { message: { protocolMessage: { key: fullMsg.key, type: 25 } } },
+						messageContextInfo: { messageSecret: randomBytes(32) }
+					}
+					const statusMsg = generateWAMessageFromContent(normalizedId, protocolMessage, { userJid })
+					await relayMessage(normalizedId, statusMsg.message!, {
+						additionalNodes: [
+							{ tag: 'meta', attrs: isPrivate ? { is_status_mention: 'true' } : { is_group_status_mention: 'true' } }
+						]
+					})
+					await delay(2000)
+				} catch (error) {
+					logger.error({ jid: id, error }, 'error sending status mention')
+				}
+			}
+
+			return fullMsg
 		},
 		sendMessage: async (jid: string, content: AnyMessageContent, options: MiscMessageGenerationOptions = {}) => {
 			const userJid = authState.creds.me!.id

@@ -295,6 +295,24 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}
 	}
 
+	const getLidUser = async (jid: string) => {
+		if (!jid) {
+			throw new Boom('Please input a jid user', { statusCode: 400 })
+		}
+		if (!isPnUser(jid) && !isLidUser(jid) && !isHostedPnUser(jid) && !isHostedLidUser(jid)) {
+			throw new Boom('Invalid JID: Not a user JID!', { statusCode: 400 })
+		}
+
+		const targetJid = jidNormalizedUser(jid)
+		const usyncQuery = new USyncQuery().withLIDProtocol()
+		usyncQuery.withUser(new USyncUser().withId(targetJid))
+
+		const result = await sock.executeUSyncQuery(usyncQuery)
+		if (result) {
+			return result.list
+		}
+	}
+
 	const fetchDisappearingDuration = async (...jids: string[]) => {
 		const usyncQuery = new USyncQuery().withDisappearingModeProtocol()
 
@@ -1499,6 +1517,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		fetchBlocklist,
 		fetchStatus,
 		fetchDisappearingDuration,
+		getLidUser,
 		updateProfilePicture,
 		removeProfilePicture,
 		updateProfileStatus,

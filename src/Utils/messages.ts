@@ -14,6 +14,7 @@ import {
 import type {
 	AnyMediaMessageContent,
 	AnyMessageContent,
+	Carousel,
 	DownloadableMessage,
 	MessageContentGenerationOptions,
 	MessageGenerationOptions,
@@ -41,6 +42,7 @@ import {
 	type MediaDownloadOptions
 } from './messages-media'
 import { shouldIncludeReportingToken } from './reporting-utils'
+import { prepareRichResponseMessage } from './rich-message-utils'
 
 type ExtractByKey<T, K extends PropertyKey> = T extends Record<K, any> ? T : never
 type RequireKey<T, K extends keyof T> = T & {
@@ -392,11 +394,113 @@ function hasOptionalProperty<T, K extends PropertyKey>(obj: T, key: K): obj is W
 	return typeof obj === 'object' && obj !== null && key in obj && (obj as any)[key] !== null
 }
 
+const buildMentionContextInfo = (message: AnyMessageContent): proto.IContextInfo => {
+	if ('mentionAll' in message && message.mentionAll) {
+		return { nonJidMentions: 1 }
+	}
+	if ('mentions' in message && message.mentions?.length) {
+		return { mentionedJid: message.mentions }
+	}
+	return {}
+}
+
+/**
+ * Converts shorthand nativeFlow button objects into the WA-compatible
+ * `{ name, buttonParamsJson }` format, plus `messageParamsJson` for
+ * `offer*` / `option*` fields.
+ */
+const prepareNativeFlowButtons = (message: AnyMessageContent): proto.Message.InteractiveMessage.INativeFlowMessage => {
+	const raw = ('nativeFlow' in message ? message.nativeFlow : undefined) ?? []
+	const buttons = Array.isArray(raw) ? raw : ((raw as { buttons?: unknown[] } | null)?.buttons ?? [])
+
+	const nativeButtons = buttons.map(btn => {
+		if (typeof btn !== 'object' || btn === null) return btn
+		const b = btn as {
+			name?: string
+			url?: string
+			text?: string
+			displayText?: string
+			id?: string
+			phoneNumber?: string
+		}
+		if (b.name) return btn
+		if (b.url) {
+			return {
+				name: 'cta_url',
+				buttonParamsJson: JSON.stringify({ display_text: b.text ?? b.displayText, url: b.url })
+			}
+		}
+		if (b.phoneNumber) {
+			return {
+				name: 'cta_call',
+				buttonParamsJson: JSON.stringify({ display_text: b.text ?? b.displayText, phone_number: b.phoneNumber })
+			}
+		}
+		return {
+			name: 'quick_reply',
+			buttonParamsJson: JSON.stringify({ display_text: b.text ?? b.displayText, id: b.id })
+		}
+	}) as proto.Message.InteractiveMessage.NativeFlowMessage.INativeFlowButton[]
+
+	const messageParamsJson: Record<string, unknown> = {}
+	if ('offerText' in message && message.offerText) {
+		messageParamsJson.limited_time_offer = {
+			text: message.offerText,
+			url: message.offerUrl ?? '',
+			copy_code: message.offerCode,
+			expiration_time: message.offerExpiration
+		}
+	}
+	if ('optionText' in message && message.optionText) {
+		messageParamsJson.bottom_sheet = {
+			description: message.optionText,
+			divider_indices: Array.from({ length: nativeButtons.length }, (_, i) => i),
+			list_title: message.optionTitle ?? '📄 Select Options',
+			button_title: message.optionText
+		}
+	}
+
+	return {
+		buttons: nativeButtons,
+		messageParamsJson: JSON.stringify(messageParamsJson)
+	}
+}
+
+/**
+ * Loose shape for the interactive overlay branches. The mixin types
+ * (`Listable`, `Buttonable`, `Interactiveable`, etc.) are only applied to the
+ * `text` and `poll` members of `AnyMessageContent`, so union narrowing cannot
+ * cleanly expose `title`/`footer`/`sections` when the media members are mixed
+ * in. We cast to this shape to mirror the fork's dynamic object access.
+ */
+type InteractiveMessageContent = {
+	text?: string
+	caption?: string
+	body?: string | proto.Message.InteractiveMessage.IBody
+	footer?: string
+	title?: string
+	subtitle?: string
+	buttonText?: string
+	sections?: proto.Message.ListMessage.ISection[]
+	contextInfo?: proto.IContextInfo
+	buttons?: proto.Message.ButtonsMessage.IButton[]
+	templateButtons?: proto.IHydratedTemplateButton[]
+	interactiveButtons?: proto.Message.InteractiveMessage.NativeFlowMessage.INativeFlowButton[]
+	nativeFlow?: unknown[]
+	shop?: proto.Message.InteractiveMessage.IShopMessage
+	collection?: proto.Message.InteractiveMessage.ICollectionMessage
+	cards?: Carousel[]
+	id?: string
+	hasMediaAttachment?: boolean
+	audioFooter?: WAMediaUpload
+}
+
 export const generateWAMessageContent = async (
 	message: AnyMessageContent,
 	options: MessageContentGenerationOptions
 ) => {
 	let m: WAMessageContent = {}
+	const im = message as unknown as InteractiveMessageContent
 	if (hasNonNullishProperty(message, 'text')) {
 		const extContent = { text: message.text } as WATextMessage
 
@@ -607,8 +711,271 @@ export const generateWAMessageContent = async (
 				initiatedByMe: true
 			}
 		}
+	} else if ('code' in message || 'links' in message || 'table' in message || 'richResponse' in message) {
+		m = prepareRichResponseMessage(message as Parameters<typeof prepareRichResponseMessage>[0])
 	} else {
 		m = await prepareWAMessageMedia(message, options)
+	}
+
+	if (im.sections?.length) {
+		const listMessage: proto.Message.IListMessage = {
+			title: im.title,
+			buttonText: im.buttonText,
+			footerText: im.footer,
+			description: im.text,
+			sections: im.sections,
+			listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,
+			contextInfo: {
+				...(im.contextInfo ?? {}),
+				...buildMentionContextInfo(message)
+			}
+		}
+		m = { listMessage }
+	} else if (im.buttons?.length) {
+		const buttons = im.buttons.map(button => {
+			const buttonText = button.buttonText?.displayText ?? ''
+			if (button.nativeFlowInfo) {
+				return button
+			}
+			return {
+				buttonId: button.buttonId,
+				buttonText: { displayText: buttonText },
+				type: button.type ?? proto.Message.ButtonsMessage.Button.Type.RESPONSE
+			} as proto.Message.ButtonsMessage.IButton
+		})
+
+		const buttonsMessage: proto.Message.IButtonsMessage = { buttons }
+		if (im.text) {
+			buttonsMessage.contentText = im.text
+			buttonsMessage.headerType = proto.Message.ButtonsMessage.HeaderType.EMPTY
+		}
+		if (im.footer) {
+			buttonsMessage.footerText = im.footer
+		}
+		if (im.title) {
+			buttonsMessage.text = im.title
+			buttonsMessage.headerType = proto.Message.ButtonsMessage.HeaderType.TEXT
+		}
+		buttonsMessage.contextInfo = {
+			...(im.contextInfo ?? {}),
+			...buildMentionContextInfo(message)
+		}
+		m = { buttonsMessage }
+	} else if (im.templateButtons?.length) {
+		const hydratedButtons = im.templateButtons.map((button, i) => ({
+			index: button.index ?? i,
+			quickReplyButton: button.quickReplyButton,
+			urlButton: button.urlButton,
+			callButton: button.callButton
+		}))
+
+		const hydratedTemplate: proto.Message.TemplateMessage.IHydratedFourRowTemplate = {
+			hydratedButtons,
+			hydratedContentText: im.text,
+			hydratedFooterText: im.footer,
+			templateId: typeof im.id === 'string' ? im.id : 'template-' + Date.now()
+		}
+		if (im.title) {
+			hydratedTemplate.hydratedTitleText = im.title
+		}
+		m = {
+			templateMessage: {
+				hydratedTemplate,
+				hydratedFourRowTemplate: hydratedTemplate
+			}
+		}
+	} else if (im.interactiveButtons?.length || im.nativeFlow?.length) {
+		const rawButtons = im.interactiveButtons ?? im.nativeFlow
+		const isShorthand =
+			Array.isArray(rawButtons) && rawButtons.length > 0 && !(rawButtons[0] as { name?: string })?.name
+
+		const nativeFlowMessage = isShorthand
+			? prepareNativeFlowButtons(message)
+			: {
+					buttons: rawButtons as proto.Message.InteractiveMessage.NativeFlowMessage.INativeFlowButton[],
+					messageParamsJson: '{}'
+				}
+
+		const interactiveMessage: proto.Message.IInteractiveMessage = { nativeFlowMessage }
+
+		if (im.collection) {
+			interactiveMessage.collectionMessage = {
+				bizJid: im.collection.bizJid,
+				id: im.collection.id,
+				messageVersion: im.collection.messageVersion ?? 1
+			}
+		} else if (im.shop) {
+			interactiveMessage.shopStorefrontMessage = {
+				surface: im.shop.surface,
+				id: im.shop.id,
+				messageVersion: im.shop.messageVersion ?? 1
+			}
+		}
+
+		if (im.body) {
+			interactiveMessage.body = typeof im.body === 'string' ? { text: im.body } : im.body
+		} else if (im.text) {
+			interactiveMessage.body = { text: im.text }
+		} else if (im.caption) {
+			interactiveMessage.body = { text: im.caption }
+		}
+
+		const hasMedia = MEDIA_KEYS.some(key => key in message)
+		if (hasMedia) {
+			interactiveMessage.header = {
+				title: im.title,
+				subtitle: im.subtitle,
+				hasMediaAttachment: true,
+				...m
+			}
+		} else if (im.title || im.subtitle) {
+			interactiveMessage.header = {
+				title: im.title,
+				subtitle: im.subtitle,
+				hasMediaAttachment: false
+			}
+		}
+
+		if (im.footer) {
+			interactiveMessage.footer = typeof im.footer === 'string' ? { text: im.footer } : im.footer
+		}
+
+		interactiveMessage.contextInfo = {
+			...(im.contextInfo ?? {}),
+			...buildMentionContextInfo(message)
+		}
+		m = { interactiveMessage }
+	} else if (im.shop) {
+		const interactiveMessage: proto.Message.IInteractiveMessage = {
+			shopStorefrontMessage: {
+				surface: im.shop.surface,
+				id: im.shop.id,
+				messageVersion: im.shop.messageVersion ?? 1
+			}
+		}
+		if (im.text) {
+			interactiveMessage.body = { text: im.text }
+		}
+		if (im.title) {
+			interactiveMessage.header = { title: im.title, subtitle: im.subtitle, hasMediaAttachment: false }
+		}
+		if (im.footer) {
+			interactiveMessage.footer = { text: im.footer }
+		}
+		interactiveMessage.contextInfo = {
+			...(im.contextInfo ?? {}),
+			...buildMentionContextInfo(message)
+		}
+		m = { interactiveMessage }
+	} else if (im.collection) {
+		const interactiveMessage: proto.Message.IInteractiveMessage = {
+			collectionMessage: {
+				bizJid: im.collection.bizJid,
+				id: im.collection.id,
+				messageVersion: im.collection.messageVersion ?? 1
+			}
+		}
+		if (im.text) {
+			interactiveMessage.body = { text: im.text }
+		}
+		if (im.title) {
+			interactiveMessage.header = { title: im.title, subtitle: im.subtitle, hasMediaAttachment: false }
+		}
+		if (im.footer) {
+			interactiveMessage.footer = { text: im.footer }
+		}
+		interactiveMessage.contextInfo = {
+			...(im.contextInfo ?? {}),
+			...buildMentionContextInfo(message)
+		}
+		m = { interactiveMessage }
+	} else if (im.cards?.length) {
+		const normalizeMediaInput = (media: WAMediaUpload): WAMediaUpload => {
+			if (Buffer.isBuffer(media)) return media
+			if (typeof media === 'string') return { url: media }
+			return media
+		}
+
+		const slides = await Promise.all(
+			im.cards.map(async card => {
+				const { image, video, product, title, caption, body, footer, ...mediaOptions } = card
+				let header: WAMessageContent = {}
+
+				if (product) {
+					const { imageMessage } = await prepareWAMessageMedia(
+						{ image: normalizeMediaInput(product.productImage), ...mediaOptions },
+						options
+					)
+					header = { productMessage: { product: { ...product, productImage: imageMessage } } }
+				} else if (image) {
+					header = await prepareWAMessageMedia({ image: normalizeMediaInput(image), ...mediaOptions }, options)
+					if (header.imageMessage) {
+						header.imageMessage.viewOnce = true
+					}
+				} else if (video) {
+					header = await prepareWAMessageMedia({ video: normalizeMediaInput(video), ...mediaOptions }, options)
+					if (header.videoMessage) {
+						header.videoMessage.viewOnce = true
+						header.videoMessage.gifPlayback = false
+					}
+				}
+
+				const hasMedia = !!(header.imageMessage || header.videoMessage || header.productMessage)
+				if (!hasMedia) {
+					throw new Boom('Each carousel card must have an image, video, or product', { statusCode: 400 })
+				}
+
+				return proto.Message.InteractiveMessage.create({
+					header: proto.Message.InteractiveMessage.Header.create({
+						title: title ?? '',
+						hasMediaAttachment: hasMedia,
+						...header
+					}),
+					body: proto.Message.InteractiveMessage.Body.create({ text: caption ?? body ?? '' }),
+					footer: proto.Message.InteractiveMessage.Footer.create({ text: footer ?? '' }),
+					nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+						buttons: [],
+						messageParamsJson: '{}'
+					})
+				})
+			})
+		)
+
+		const interactiveMessage: proto.Message.IInteractiveMessage = {
+			carouselMessage: proto.Message.InteractiveMessage.CarouselMessage.create({
+				cards: slides,
+				carouselCardType: proto.Message.InteractiveMessage.CarouselMessage.CarouselCardType.HSCROLL_CARDS,
+				messageVersion: 1
+			})
+		}
+		if (im.text) {
+			interactiveMessage.body = proto.Message.InteractiveMessage.Body.create({ text: im.text })
+			interactiveMessage.header = proto.Message.InteractiveMessage.Header.create({
+				title: im.title,
+				subtitle: im.subtitle,
+				hasMediaAttachment: false
+			})
+		}
+		if (im.footer) {
+			interactiveMessage.footer = proto.Message.InteractiveMessage.Footer.create({ text: im.footer })
+		}
+		interactiveMessage.contextInfo = {
+			...(im.contextInfo ?? {}),
+			...buildMentionContextInfo(message)
+		}
+		m = { interactiveMessage }
+	}
+
+	if (hasOptionalProperty(message, 'interactiveAsTemplate') && message.interactiveAsTemplate) {
+		if (!m.interactiveMessage) {
+			throw new Boom('Invalid message type for template', { statusCode: 400 })
+		}
+		m = {
+			templateMessage: {
+				interactiveMessageTemplate: m.interactiveMessage,
+				templateId: 'id' in message && typeof message.id === 'string' ? message.id : 'template-' + Date.now()
+			}
+		}
 	}
 
 	if (hasOptionalProperty(message, 'viewOnce') && !!message.viewOnce) {

@@ -26,6 +26,8 @@ export default defineConfig([globalIgnores([
     "Example/Example.ts",
     "**/docs",
     "**/proto-extract",
+    "**/Voip",
+    "**/voip",
 ]),
 ...base,
 {
