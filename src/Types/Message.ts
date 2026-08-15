@@ -249,6 +249,23 @@ export interface Carousel {
 	nativeFlow?: unknown[]
 }
 
+export type Sticker = {
+	sticker: WAMediaUpload
+	isAnimated?: boolean
+	isLottie?: boolean
+	emojis?: string[]
+	accessibilityLabel?: string
+}
+
+export type StickerPack = {
+	stickers: Sticker[]
+	cover: WAMediaUpload
+	name: string
+	publisher: string
+	description?: string
+	packId?: string
+}
+
 /** Extra fields accepted by the rich/AI message composers */
 export type RichMessageHelpers = {
 	code?: string
@@ -406,6 +423,9 @@ export type AnyRegularMessageContent = (
 	  }
 	| SharePhoneNumber
 	| RequestPhoneNumber
+	| ({
+			stickerPack: StickerPack
+	  } & Contextable)
 ) &
 	ViewOnce &
 	RichMessageHelpers

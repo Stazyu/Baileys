@@ -1,5 +1,6 @@
 import { Boom } from '@hapi/boom'
 import { randomBytes } from 'crypto'
+import { type Zippable, zipSync } from 'fflate'
 import { promises as fs } from 'fs'
 import { type Transform } from 'stream'
 import { proto } from '../../WAProto/index.js'
@@ -39,7 +40,9 @@ import {
 	getAudioDuration,
 	getAudioWaveform,
 	getRawMediaUploadData,
-	type MediaDownloadOptions
+	getStream,
+	type MediaDownloadOptions,
+	toBuffer
 } from './messages-media'
 import { shouldIncludeReportingToken } from './reporting-utils'
 import { prepareRichResponseMessage } from './rich-message-utils'
@@ -713,6 +716,80 @@ export const generateWAMessageContent = async (
 		}
 	} else if ('code' in message || 'links' in message || 'table' in message || 'richResponse' in message) {
 		m = prepareRichResponseMessage(message as Parameters<typeof prepareRichResponseMessage>[0])
+	} else if (hasNonNullishProperty(message, 'stickerPack')) {
+		const { stickers, cover, name, publisher, packId, description } = message.stickerPack
+
+		const stickerData: Zippable = {}
+		const stickerMetadata: proto.Message.StickerPackMessage.ISticker[] = []
+		for (const [i, s] of stickers.entries()) {
+			const { stream } = await getStream(s.sticker)
+			const buffer = await toBuffer(stream)
+			const hash = sha256(buffer).toString('base64url')
+			const fileName = `${i.toString().padStart(2, '0')}_${hash}.webp`
+			stickerData[fileName] = [new Uint8Array(buffer), { level: 0 }]
+			stickerMetadata.push({
+				fileName,
+				mimetype: 'image/webp',
+				isAnimated: s.isAnimated || false,
+				isLottie: s.isLottie || false,
+				emojis: s.emojis || [],
+				accessibilityLabel: s.accessibilityLabel || ''
+			})
+		}
+
+		const zipBuffer = Buffer.from(zipSync(stickerData))
+		const coverBuffer = await toBuffer((await getStream(cover)).stream)
+
+		const [stickerPackUpload, coverUpload] = await Promise.all([
+			encryptedStream(zipBuffer, 'sticker-pack', { logger: options.logger, opts: options.options }),
+			prepareWAMessageMedia({ image: coverBuffer }, { ...options, mediaTypeOverride: 'image' })
+		])
+
+		try {
+			const stickerPackUploadResult = await options.upload(stickerPackUpload.encFilePath, {
+				fileEncSha256B64: stickerPackUpload.fileEncSha256.toString('base64'),
+				mediaType: 'sticker-pack',
+				timeoutMs: options.mediaUploadTimeoutMs
+			})
+
+			const coverImage = coverUpload.imageMessage
+			const imageDataHash = sha256(coverBuffer).toString('base64')
+			const stickerPackId = packId || generateMessageIDV2()
+
+			m.stickerPackMessage = {
+				name,
+				publisher,
+				stickerPackId,
+				packDescription: description,
+				stickerPackOrigin: WAProto.Message.StickerPackMessage.StickerPackOrigin.THIRD_PARTY,
+				stickerPackSize: stickerPackUpload.fileLength,
+				stickers: stickerMetadata,
+				fileSha256: stickerPackUpload.fileSha256,
+				fileEncSha256: stickerPackUpload.fileEncSha256,
+				mediaKey: stickerPackUpload.mediaKey,
+				directPath: stickerPackUploadResult.directPath,
+				fileLength: stickerPackUpload.fileLength,
+				mediaKeyTimestamp: unixTimestampSeconds(),
+				trayIconFileName: `${stickerPackId}.png`,
+				imageDataHash,
+				thumbnailDirectPath: coverImage?.directPath,
+				thumbnailSha256: coverImage?.fileSha256,
+				thumbnailEncSha256: coverImage?.fileEncSha256,
+				thumbnailHeight: coverImage?.height,
+				thumbnailWidth: coverImage?.width
+			}
+
+			m.stickerPackMessage.contextInfo = {
+				...(message.contextInfo || {}),
+				...buildMentionContextInfo(message)
+			}
+		} finally {
+			try {
+				await fs.unlink(stickerPackUpload.encFilePath)
+			} catch {
+				//
+			}
+		}
 	} else {
 		m = await prepareWAMessageMedia(message, options)
 	}
