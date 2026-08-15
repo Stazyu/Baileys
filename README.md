@@ -124,6 +124,7 @@ import makeWASocket from '@stazyu/baileys'
         - [Audio Message](#audio-message)
         - [Image Message](#image-message)
         - [ViewOnce Message](#view-once-message)
+        - [Sticker Pack Message](#sticker-pack-message)
 - [Rich AI Responses](#rich-ai-responses)
 - [Interactive Messages](#interactive-messages)
 - [Modify Messages](#modify-messages)
@@ -1020,6 +1021,28 @@ await sock.sendMessage(
         },
         viewOnce: true, //works with video, audio too
         caption: 'hello word'
+    }
+)
+```
+
+#### Sticker Pack Message
+
+- Send a collection of stickers as a single WhatsApp sticker pack. Each sticker is zipped and uploaded together, with `cover` used as the pack's tray icon.
+
+```ts
+await sock.sendMessage(
+    id,
+    {
+        stickerPack: {
+            name: 'My Pack',
+            publisher: 'My Bot',
+            description: 'A pack of custom stickers',
+            cover: fs.readFileSync('./Media/cat.jpeg'),
+            stickers: [
+                { sticker: fs.readFileSync('./Media/ma_sticker_1.webp'), emojis: ['😀'], accessibilityLabel: 'smile' },
+                { sticker: { url: './Media/ma_sticker_2.webp' }, isAnimated: false }
+            ]
+        }
     }
 )
 ```
