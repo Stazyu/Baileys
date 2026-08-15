@@ -250,9 +250,7 @@ export interface Carousel {
 }
 
 export type Sticker = {
-	sticker: WAMediaUpload
-	isAnimated?: boolean
-	isLottie?: boolean
+	data: WAMediaUpload
 	emojis?: string[]
 	accessibilityLabel?: string
 }
@@ -423,9 +421,9 @@ export type AnyRegularMessageContent = (
 	  }
 	| SharePhoneNumber
 	| RequestPhoneNumber
-	| ({
+	| {
 			stickerPack: StickerPack
-	  } & Contextable)
+	  }
 ) &
 	ViewOnce &
 	RichMessageHelpers

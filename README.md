@@ -1027,7 +1027,7 @@ await sock.sendMessage(
 
 #### Sticker Pack Message
 
-- Send a collection of stickers as a single WhatsApp sticker pack. Each sticker is zipped and uploaded together, with `cover` used as the pack's tray icon.
+- Send a collection of stickers as a single WhatsApp sticker pack. Stickers are zipped and uploaded together, with `cover` used as the pack's tray icon (which also lives inside the ZIP). Stickers can be WebP directly, or PNG/JPEG (converted to WebP via `sharp`).
 
 ```ts
 await sock.sendMessage(
@@ -1039,8 +1039,8 @@ await sock.sendMessage(
             description: 'A pack of custom stickers',
             cover: fs.readFileSync('./Media/cat.jpeg'),
             stickers: [
-                { sticker: fs.readFileSync('./Media/ma_sticker_1.webp'), emojis: ['😀'], accessibilityLabel: 'smile' },
-                { sticker: { url: './Media/ma_sticker_2.webp' }, isAnimated: false }
+                { data: fs.readFileSync('./Media/ma_sticker_1.webp'), emojis: ['😀'], accessibilityLabel: 'smile' },
+                { data: { url: './Media/ma_sticker_2.webp' } }
             ]
         }
     }
