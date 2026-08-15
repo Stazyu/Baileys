@@ -1,18 +1,31 @@
 {
-  "name": "baileys",
+  "name": "@stazyu/baileys",
   "type": "module",
   "version": "7.0.0-rc14",
-  "description": "A WebSockets library for interacting with WhatsApp Web",
+  "description": "A lightweight fork of Baileys with practical fixes and small but meaningful improvements for WhatsApp Web.",
   "keywords": [
     "whatsapp",
-    "automation"
+    "automation",
+    "baileys",
+    "baileys-fork",
+    "whatsapp-api",
+    "whatsapp-web",
+    "whatsapp-bot",
+    "multi-device"
   ],
-  "homepage": "https://github.com/WhiskeySockets/Baileys/",
+  "homepage": "https://github.com/Stazyu/Baileys#readme",
   "repository": {
-    "url": "git@github.com:WhiskeySockets/Baileys.git"
+    "type": "git",
+    "url": "git+https://github.com/Stazyu/Baileys.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Stazyu/Baileys/issues"
   },
   "license": "MIT",
-  "author": "Rajeh Taher",
+  "author": "Wahyu Hidayatulloh Pamungkas",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "files": [
