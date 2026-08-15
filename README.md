@@ -1,4 +1,4 @@
-<h1 align='center'><img alt="Baileys logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" height="75"/></h1>
+﻿<h1 align='center'><img alt="Baileys logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" height="75"/></h1>
 
 <div align='center'>Baileys is a WebSockets-based TypeScript library for interacting with the WhatsApp Web API.</div>
 
@@ -56,17 +56,17 @@ To run the example script, download or clone the repo and then type the followin
 
 Use the stable version:
 ```
-yarn add @whiskeysockets/baileys
+yarn add @stazyu/baileys
 ```
 
 Use the edge version (no guarantee of stability, but latest fixes + features)
 ```
-yarn add github:WhiskeySockets/Baileys
+yarn add github:Stazyu/Baileys
 ```
 
 Then import your code using:
 ```ts
-import makeWASocket from '@whiskeysockets/baileys'
+import makeWASocket from '@stazyu/baileys'
 ```
 
 # Links
@@ -86,13 +86,26 @@ import makeWASocket from '@whiskeysockets/baileys'
     - [Receive Notifications in Whatsapp App](#receive-notifications-in-whatsapp-app)
 
 - [Save Auth Info](#saving--restoring-sessions)
+    - [Single File Auth State](#single-file-auth-state)
+    - [MongoDB Auth State](#mongodb-auth-state)
+    - [Cache Manager Auth State](#cache-manager-auth-state)
 - [Handling Events](#handling-events)
     - [Example to Start](#example-to-start)
     - [Decrypt Poll Votes](#decrypt-poll-votes)
     - [Summary of Events on First Connection](#summary-of-events-on-first-connection)
+    - [Auto-Reply System](#auto-reply-system)
+    - [Message Scheduler](#message-scheduler)
+    - [Anti-Delete System](#anti-delete-system)
 - [Implementing a Data Store](#implementing-a-data-store)
+- [Store Module](#store-module)
 - [Whatsapp IDs Explain](#whatsapp-ids-explain)
 - [Utility Functions](#utility-functions)
+- [JID Plotting & LID Support](#jid-plotting--lid-support)
+- [Message Search](#message-search)
+- [Message Templates](#message-templates)
+- [vCard / Contact Cards](#vcard--contact-cards)
+- [Status Posting](#status-posting)
+- [Chat Controls](#chat-controls)
 - [Sending Messages](#sending-messages)
     - [Non-Media Messages](#non-media-messages)
         - [Text Message](#text-message)
@@ -111,6 +124,8 @@ import makeWASocket from '@whiskeysockets/baileys'
         - [Audio Message](#audio-message)
         - [Image Message](#image-message)
         - [ViewOnce Message](#view-once-message)
+- [Rich AI Responses](#rich-ai-responses)
+- [Interactive Messages](#interactive-messages)
 - [Modify Messages](#modify-messages)
     - [Delete Messages (for everyone)](#deleting-messages-for-everyone)
     - [Edit Messages](#editing-messages)
@@ -142,6 +157,7 @@ import makeWASocket from '@whiskeysockets/baileys'
     - [Change Profile Name](#change-profile-name)
     - [Change Display Picture (groups too)](#change-display-picture-groups-too)
     - [Remove display picture (groups too)](#remove-display-picture-groups-too)
+- [Username Management](#username-management)
 - [Groups](#groups)
     - [Create a Group](#create-a-group)
     - [Add/Remove or Demote/Promote](#addremove-or-demotepromote)
@@ -195,7 +211,7 @@ WhatsApp provides a multi-device API that allows Baileys to be authenticated as 
 > You can customize browser name if you connect with **QR-CODE**, with `Browser` constant, we have some browsers config, **see the [BrowsersMap type alias](https://baileys.wiki/docs/api/type-aliases/BrowsersMap/)**
 
 ```ts
-import makeWASocket from '@whiskeysockets/baileys'
+import makeWASocket from '@stazyu/baileys'
 
 const sock = makeWASocket({
     // can provide additional config here
@@ -215,7 +231,7 @@ If the connection is successful, you will see a QR code printed on your terminal
 The phone number can't have `+` or `()` or `-`, only numbers, you must provide country code
 
 ```ts
-import makeWASocket from '@whiskeysockets/baileys'
+import makeWASocket from '@stazyu/baileys'
 
 const sock = makeWASocket({
     // can provide additional config here
@@ -288,7 +304,7 @@ You obviously don't want to keep scanning the QR code every time you want to con
 
 So, you can load the credentials to log back in:
 ```ts
-import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys'
+import makeWASocket, { useMultiFileAuthState } from '@stazyu/baileys'
 
 const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
 
@@ -305,6 +321,50 @@ sock.ev.on('creds.update', saveCreds)
 
 > [!NOTE]
 > When a message is received/sent, due to signal sessions needing updating, the auth keys (`authState.keys`) will update. Whenever that happens, you must save the updated keys (`authState.keys.set()` is called). Not doing so will prevent your messages from reaching the recipient & cause other unexpected consequences. The `useMultiFileAuthState` function automatically takes care of that, but for any other serious implementation -- you will need to be very careful with the key state management.
+
+### Single File Auth State
+
+Store the entire auth state in one JSON file. Intended as an example; prefer [`useMultiFileAuthState`](#saving--restoring-sessions) for production.
+
+```ts
+import makeWASocket, { useSingleFileAuthState } from '@stazyu/baileys'
+
+const { state, saveState } = useSingleFileAuthState('./auth_info_baileys.json')
+const sock = makeWASocket({ auth: state })
+
+sock.ev.on('creds.update', saveState)
+```
+
+### MongoDB Auth State
+
+Persist the auth state to a MongoDB collection. Any driver (`mongodb`, `mongoose`, etc.) exposing the [`MongoAuthCollection`](src/Utils/use-mongo-file-auth-state.ts:11) surface works.
+
+```ts
+import { MongoClient } from 'mongodb'
+import makeWASocket, { useMongoFileAuthState } from '@stazyu/baileys'
+
+const client = new MongoClient('mongodb://localhost:27017')
+await client.connect()
+const collection = client.db('baileys').collection('sessions')
+
+const { state, saveCreds } = await useMongoFileAuthState(collection)
+const sock = makeWASocket({ auth: state })
+
+sock.ev.on('creds.update', saveCreds)
+```
+
+### Cache Manager Auth State
+
+Back the auth state with any [`CacheStore`](src/Types/Socket.ts:13)-compatible cache (Redis, `cache-manager`, etc.).
+
+```ts
+import makeWASocket, { makeCacheManagerAuthState } from '@stazyu/baileys'
+
+const { state, saveCreds, clearState } = await makeCacheManagerAuthState(store, 'session-key')
+const sock = makeWASocket({ auth: state })
+
+sock.ev.on('creds.update', saveCreds)
+```
 
 ## Handling Events
 
@@ -331,7 +391,7 @@ sock.ev.on('messages.upsert', ({ messages }) => {
 > For reliable serialization of the authentication state, especially when storing as JSON, always use the BufferJSON utility.
 
 ```ts
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys'
+import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@stazyu/baileys'
 import { Boom } from '@hapi/boom'
 
 async function connectToWhatsApp () {
@@ -403,6 +463,100 @@ sock.ev.on('messages.update', event => {
 1. When you connect first time, `connection.update` will be fired requesting you to restart sock
 2. Then, history messages will be received in `messaging.history-set`
 
+### Auto-Reply System
+
+Keyword/pattern-based automatic response handler with optional typing simulation.
+
+```ts
+import makeWASocket, { createAutoReply } from '@stazyu/baileys'
+
+const sock = makeWASocket()
+
+const autoReply = createAutoReply(
+    // Wire sendMessage
+    (jid, content, opts) => sock.sendMessage(jid, content, opts),
+    // Wire sendPresence â€” required for simulateTyping
+    (jid, presence) => sock.sendPresenceUpdate(presence, jid),
+    {
+        simulateTyping: true,
+        typingDuration: 1500,
+        globalCooldown: 2000
+    }
+)
+
+autoReply.addRule({
+    keywords: ['hi', 'hello', 'hey'],
+    response: { text: 'Hello! How can I help? ðŸ‘‹' },
+    quoted: true
+})
+
+autoReply.addRule({
+    pattern: /^!weather (.+)$/i,
+    response: async (msg, match) => ({ text: `Weather for ${match![1]}` })
+})
+
+sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const msg of messages) {
+        if (!msg.key.fromMe) await autoReply.processMessage(msg)
+    }
+})
+```
+
+Rules support `keywords`, `pattern`, `exactMatch`, `allowedJids`, `blockedJids`, `groupsOnly`, `privateOnly`, `cooldown`, `quoted`, and `priority`. Manage them with [`getRule`](src/Utils/auto-reply.ts:116), [`setRuleActive`](src/Utils/auto-reply.ts:121), [`removeRule`](src/Utils/auto-reply.ts:106), and [`clearRules`](src/Utils/auto-reply.ts:131).
+
+### Message Scheduler
+
+Schedule messages to be sent at a specific time or after a delay.
+
+```ts
+import makeWASocket, { createMessageScheduler } from '@stazyu/baileys'
+
+const sock = makeWASocket()
+
+const scheduler = createMessageScheduler(
+    (jid, content) => sock.sendMessage(jid, content),
+    {
+        onSent: (scheduled) => console.log('sent', scheduled.id),
+        onFailed: (scheduled, error) => console.error(error)
+    }
+)
+
+// At a specific time
+scheduler.schedule('6281234567890@s.whatsapp.net', { text: 'Happy Birthday! ðŸŽ‚' }, new Date('2026-12-25T09:00:00'))
+
+// After a delay
+scheduler.scheduleDelay(jid, { text: 'Reminder â°' }, 30 * 60 * 1000)
+```
+
+Manage entries with [`cancel`](src/Utils/scheduling.ts:91), [`cancelForJid`](src/Utils/scheduling.ts:102), [`getPending`](src/Utils/scheduling.ts:115), [`stop`](src/Utils/scheduling.ts:173), and [`clearAll`](src/Utils/scheduling.ts:125). The scheduler is in-memory only.
+
+### Anti-Delete System
+
+Store incoming messages and recover them when the sender revokes (deletes for everyone).
+
+```ts
+import makeWASocket, {
+    MessageStore,
+    createMessageStoreHandler,
+    createAntiDeleteHandler
+} from '@stazyu/baileys'
+
+const sock = makeWASocket()
+const store = new MessageStore({ maxMessagesPerChat: 1000, ttl: 24 * 60 * 60 * 1000 })
+
+// 1. Store messages
+sock.ev.on('messages.upsert', createMessageStoreHandler(store))
+
+// 2. React to revokes
+const antiDelete = createAntiDeleteHandler(store)
+sock.ev.on('messages.update', (updates) => {
+    for (const info of antiDelete(updates)) {
+        console.log(`Message from ${info.key.remoteJid} was deleted`, info.originalMessage.message)
+        // await sock.copyNForward(info.key.remoteJid, info.originalMessage)
+    }
+})
+```
+
 ## Implementing a Data Store
 
 - Baileys does not come with a defacto storage for chats, contacts, or messages. However, a simple in-memory implementation has been provided. The store listens for chat updates, new messages, message updates, etc., to always have an up-to-date version of the data.
@@ -413,7 +567,7 @@ sock.ev.on('messages.update', event => {
 It can be used as follows:
 
 ```ts
-import makeWASocket, { makeInMemoryStore } from '@whiskeysockets/baileys'
+import makeWASocket, { makeInMemoryStore } from '@stazyu/baileys'
 // the store maintains the data of the WA connection in memory
 // can be written out to a file & read from it
 const store = makeInMemoryStore({ })
@@ -443,6 +597,25 @@ sock.ev.on('contacts.upsert', () => {
 
 The store also provides some simple functions such as `loadMessages` that utilize the store to speed up data retrieval.
 
+## Store Module
+
+Baileys also exports a [`Store`](src/Store/index.ts:1) barrel with the following reusable pieces:
+
+- [`makeInMemoryStore`](src/Store/make-in-memory-store.ts:114) â€” the in-memory chat/contact/message store used above.
+- [`makeOrderedDictionary`](src/Store/make-ordered-dictionary.ts:15) â€” insertion-ordered dictionary keyed by an id getter.
+- [`ObjectRepository`](src/Store/object-repository.ts:1) â€” generic entity repository with find/upsert/delete helpers.
+- [`makeCacheManagerAuthState`](src/Store/make-cache-manager-store.ts:12) â€” auth state backed by a [`CacheStore`](src/Types/Socket.ts:13)-compatible cache.
+
+```ts
+import { makeOrderedDictionary, ObjectRepository } from '@stazyu/baileys'
+
+const dict = makeOrderedDictionary<{ id: string; name: string }>(item => item.id)
+dict.upsert({ id: '1', name: 'Alice' }, 'append')
+
+const repo = new ObjectRepository<{ id: string; name: string }>()
+repo.upsertById('1', { id: '1', name: 'Alice' })
+```
+
 ## Whatsapp IDs Explain
 
 - `id` is the WhatsApp ID, called `jid` too, of the person or group you're sending the message to.
@@ -458,6 +631,160 @@ The store also provides some simple functions such as `loadMessages` that utiliz
 - `getDevice`, returns the device from message
 - `makeCacheableSignalKeyStore`, make auth store more fast
 - `downloadContentFromMessage`, download content from any message
+- [`parseJid`](src/Utils/jid-plotting.ts:67), parse and extract full info from any JID (PN or LID)
+- [`getSenderPn`](src/Utils/jid-plotting.ts:95), get the current session phone number from creds
+- [`generateVCard`](src/Utils/vcard.ts:47), generate a vCard string from contact data
+- [`extractMessageText`](src/Utils/message-search.ts:24), extract searchable text from a message
+
+## JID Plotting & LID Support
+
+Utilities for working with WhatsApp's Linked IDs (LID) and phone-number (PN) JIDs.
+
+```ts
+import {
+    parseJid,
+    plotJid,
+    normalizePhoneToJid,
+    getSenderPn
+} from '@stazyu/baileys'
+
+const info = parseJid('1234567890@s.whatsapp.net')
+console.log(info?.isLid) // false
+console.log(info?.user)  // '1234567890'
+
+const jid = normalizePhoneToJid('62812345678') // '62812345678@s.whatsapp.net'
+
+const plotted = plotJid('1234567890@s.whatsapp.net')
+
+const sender = getSenderPn(sock.authState.creds)
+```
+
+Other helpers include [`createJidPlotter`](src/Utils/jid-plotting.ts:254), [`getJidVariants`](src/Utils/jid-plotting.ts:213), [`extractPhoneNumber`](src/Utils/jid-plotting.ts:169), [`isSameUser`](src/Utils/jid-plotting.ts:203), and [`formatJidDisplay`](src/Utils/jid-plotting.ts:176).
+
+## Message Search
+
+Fast client-side message indexing with relevance scoring.
+
+```ts
+import makeWASocket, { createMessageSearch, searchMessages } from '@stazyu/baileys'
+
+const sock = makeWASocket()
+const index = createMessageSearch()
+
+sock.ev.on('messages.upsert', ({ messages }) => index.addMessages(messages))
+
+const results = index.search('invoice', { limit: 10, jid: '1234@s.whatsapp.net' })
+for (const { message, relevanceScore } of results) {
+    console.log(relevanceScore, message.key.id)
+}
+```
+
+Use [`searchMessages`](src/Utils/message-search.ts:86) for a one-off query over a `WAMessage[]` array, or [`searchMessagesRegex`](src/Utils/message-search.ts:130) for pattern matching.
+
+## Message Templates
+
+Generate consistently formatted messages using `{{variable:defaultValue}}` interpolation.
+
+```ts
+import {
+    createTemplateManager,
+    renderTemplate,
+    PRESET_TEMPLATES
+} from '@stazyu/baileys'
+
+// Load the built-in presets (order, invoice, greeting, etc.)
+const templates = createTemplateManager(true)
+
+// Render a preset
+const invoice = templates.render('invoice', {
+    invoiceNumber: 'INV-111',
+    customerName: 'John Doe',
+    items: '1x Web Design\n1x Hosting',
+    subtotal: '10,000',
+    tax: '1,000',
+    total: '11,000'
+})
+await sock.sendMessage(jid, { text: invoice })
+
+// Quick render without a manager
+const quick = renderTemplate('Hi {{name}}, order #{{orderId}}', { name: 'Alice', orderId: '123' })
+
+// Register a custom template
+templates.create({
+    name: 'Welcome',
+    content: 'Hello {{name}}! Welcome to {{company:us}}!',
+    category: 'greeting'
+})
+```
+
+Preset template names are defined in [`PRESET_TEMPLATES`](src/Utils/templates.ts:179) (`order_confirmation`, `invoice`, `welcome`, `reminder`, `support_ticket`, etc.).
+
+## vCard / Contact Cards
+
+```ts
+import {
+    quickContact,
+    createContactCard,
+    createContactCards,
+    generateVCard
+} from '@stazyu/baileys'
+
+// Single contact
+const contact = quickContact('John Doe', '+1234567890', { organization: 'Acme Corp' })
+await sock.sendMessage(jid, createContactCard(contact))
+
+// Multiple contacts
+await sock.sendMessage(jid, createContactCards([
+    quickContact('Alice', '+111111'),
+    quickContact('Bob', '+222222')
+]))
+
+// Raw vCard string
+const vcard = generateVCard({ fullName: 'Jane Smith', phones: [{ number: '+123', type: 'CELL' }] })
+```
+
+## Status Posting
+
+Helpers for building and posting text/image/video/audio statuses.
+
+```ts
+import makeWASocket, { StatusHelper, STATUS_BACKGROUNDS, STATUS_FONTS } from '@stazyu/baileys'
+
+const sock = makeWASocket()
+
+await StatusHelper.send(
+    (jid, content, opts) => sock.sendMessage(jid, content, opts),
+    StatusHelper.text('Hello world', STATUS_BACKGROUNDS.solid.green, STATUS_FONTS.SANS_SERIF)
+)
+```
+
+Lower-level builders [`createTextStatus`](src/Utils/status-posting.ts:76), [`createImageStatus`](src/Utils/status-posting.ts:88), [`createVideoStatus`](src/Utils/status-posting.ts:95), and [`createAudioStatus`](src/Utils/status-posting.ts:103) are also available.
+
+## Chat Controls
+
+Standalone helpers for typing indicators, read receipts, and pinned-message tracking.
+
+```ts
+import makeWASocket, {
+    createTypingIndicator,
+    createReadReceiptController,
+    createPinnedMessagesManager
+} from '@stazyu/baileys'
+
+const sock = makeWASocket()
+
+const typing = createTypingIndicator((jid, presence) => sock.sendPresenceUpdate(presence, jid))
+await typing.startTyping(jid)
+await typing.stopTyping(jid)
+
+const receipts = createReadReceiptController(
+    (jid, participant, messageIds) => sock.readMessages(messageIds.map(id => ({ remoteJid: jid, id, fromMe: false }))),
+    { enabled: true, readDelay: 500, excludeJids: ['1234@s.whatsapp.net'] }
+)
+
+const pins = createPinnedMessagesManager()
+pins.pin(jid, 'MESSAGE_ID')
+```
 
 ## Sending Messages
 
@@ -543,7 +870,7 @@ await sock.sendMessage(
     jid,
     {
         react: {
-            text: '💖', // use an empty string to remove the reaction
+            text: 'ðŸ’–', // use an empty string to remove the reaction
             key: message.key
         }
     }
@@ -599,7 +926,7 @@ await sock.sendMessage(
 await sock.sendMessage(
     jid,
     {
-        text: 'Hi, this was sent using https://github.com/whiskeysockets/baileys'
+        text: 'Hi, this was sent using https://github.com/Stazyu/Baileys'
     }
 )
 ```
@@ -697,6 +1024,95 @@ await sock.sendMessage(
 )
 ```
 
+## Rich AI Responses
+
+Send Meta AI-style rich responses with code blocks, tables, lists, LaTeX, and Markdown. These methods live directly on the socket.
+
+```ts
+// Table
+await sock.sendTable(jid, 'Price List', ['Item', 'Qty', 'Price'], [
+    ['Apple', '3', '$1.50'],
+    ['Banana', '6', '$0.90']
+])
+
+// List
+await sock.sendList(jid, 'Menu', ['Fried Rice', 'Ice Tea'])
+
+// Syntax-highlighted code block
+await sock.sendCodeBlock(jid, 'console.log("Hello World")', null, { title: 'Example', language: 'javascript' })
+
+// Markdown formatted natively
+await sock.sendMarkdown(jid, '# H1\n## H2\n==Highlighted==\n_Italics_ and **Bold**!')
+
+// LaTeX expression rendered to an image
+await sock.sendLatexImage(jid, null, 'E=mc^2')
+await sock.sendLatexInlineImage(jid, null, { formula: 'x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}' })
+
+// Raw rich sub-messages
+await sock.sendRichMessage(jid, [{ messageType: 2, messageText: 'Hello' }])
+
+// Capture + replay a unified response
+const captured = sock.captureUnifiedResponse(receivedMessage.message)
+await sock.sendUnifiedResponse(jid, undefined, captured)
+```
+
+Low-level composers are also exported from [`message-composer`](src/Utils/message-composer.ts:1): [`generateTableContent`](src/Utils/message-composer.ts:90), [`generateCodeBlockContent`](src/Utils/message-composer.ts:131), [`generateLatexImageContent`](src/Utils/message-composer.ts:192), [`generateMarkdownContent`](src/Utils/message-composer.ts:259), and [`generateRichMessageContent`](src/Utils/message-composer.ts:315).
+
+## Interactive Messages
+
+Generate button/list/template/native-flow wrappers without hand-assembling protobuf payloads.
+
+```ts
+import {
+    generateQuickReplyButtons,
+    generateUrlButtonMessage,
+    generateCopyCodeButton,
+    generateCombinedButtons,
+    generateInteractiveListMessage,
+    generateInteractiveButtonMessage,
+    generateTemplateMessage
+} from '@stazyu/baileys'
+
+// Quick reply buttons
+await sock.sendMessage(jid, generateQuickReplyButtons(
+    'Please select an option:',
+    [
+        { id: 'btn-1', displayText: 'âœ… Accept' },
+        { id: 'btn-2', displayText: 'âŒ Reject' }
+    ],
+    { footer: 'Powered by Baileys' }
+))
+
+// URL button
+await sock.sendMessage(jid, generateUrlButtonMessage(
+    'Visit our website for more info',
+    [{ displayText: 'ðŸŒ Open Website', url: 'https://example.com' }]
+))
+
+// Copy code button
+await sock.sendMessage(jid, generateCopyCodeButton('Your OTP is:', '123456', 'ðŸ“‹ Copy Code'))
+
+// Combined buttons (url / reply / copy / call)
+await sock.sendMessage(jid, generateCombinedButtons(
+    'Choose an action:',
+    [
+        { type: 'reply', displayText: 'ðŸ›’ Order Now', id: 'order' },
+        { type: 'url', displayText: 'ðŸŒ Website', url: 'https://example.com' },
+        { type: 'call', displayText: 'ðŸ“ž Phone', phoneNumber: '+6281234567890' },
+        { type: 'copy', displayText: 'ðŸ“‹ Copy Promo', copyCode: 'PROMO2024' }
+    ]
+))
+
+// Interactive list
+await sock.sendMessage(jid, generateInteractiveListMessage({
+    title: 'ðŸ“‹ Product Menu',
+    buttonText: 'View Menu',
+    sections: [
+        { title: 'Food', rows: [{ rowId: 'nasi-goreng', title: 'Fried Rice', description: '$2.50' }] }
+    ]
+}))
+```
+
 ## Modify Messages
 
 ### Deleting Messages (for everyone)
@@ -729,7 +1145,7 @@ await sock.sendMessage(jid, {
 If you want to save the media you received
 ```ts
 import { createWriteStream } from 'fs'
-import { downloadMediaMessage, getContentType } from '@whiskeysockets/baileys'
+import { downloadMediaMessage, getContentType } from '@stazyu/baileys'
 
 sock.ev.on('messages.upsert', async ({ [m] }) => {
     if (!m.message) return // if there is no text or media message
@@ -1000,6 +1416,34 @@ await sock.updateProfilePicture(jid, { url: './new-profile-picture.jpeg' })
 ```ts
 await sock.removeProfilePicture(jid)
 ```
+
+## Username Management
+
+Manage the WhatsApp username feature directly through the socket.
+
+```ts
+// Check availability
+const check = await sock.checkUsername('myusername')
+console.log(check.available, check.suggestions)
+
+// Check multiple usernames at once
+await sock.checkUsernameMulti(['user1', 'user2'])
+
+// Set / get / delete your username
+await sock.setUsername('myusername', { source: 'USER_INPUT' })
+const myUsername = await sock.getMyUsername()
+await sock.deleteUsername()
+
+// Get recommendations and set a pin
+await sock.getUsernameRecommendations()
+await sock.setUsernamePin('1234')
+
+// Resolve a username to a JID, and fetch contacts' usernames
+const user = await sock.findUserByUsername('someusername')
+const usernames = await sock.fetchContactUsernames('1234@s.whatsapp.net')
+```
+
+Query-ID constants are exposed via [`USERNAME_QUERY_IDS`](src/Socket/username.ts:7).
 
 ## Groups
 
