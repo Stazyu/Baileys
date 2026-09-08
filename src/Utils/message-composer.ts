@@ -1,3 +1,5 @@
+import { Boom } from '@hapi/boom'
+import type { MessageRelayOptions, WAMessage } from '../Types'
 import { randomUUID } from 'crypto'
 import { proto } from '../../WAProto/index.js'
 import { CodeHighlightType, RichSubMessageType } from '../Types/RichType'
@@ -256,26 +258,210 @@ export const generateLatexInlineImageContent = async (
 	}
 }
 
+export interface ExtractEntityOptions {
+	/** master switch; when false the text is returned untouched */
+	extract?: boolean
+	/** parse `[label](url)` into a GenAIInlineLinkItem */
+	hyperlink?: boolean
+	/** parse `[](url)` into a GenAISearchCitationItem */
+	citation?: boolean
+	/** parse `[expr|w|h|fontHeight|padding](<url>)` into a GenAILatexItem */
+	latex?: boolean
+}
+
+type InlineEntityType = 'hyperlink' | 'citation' | 'latex'
+
+export interface ExtractedInlineEntity {
+	key: string
+	metadata: Record<string, unknown>
+}
+
+export interface ExtractedEntity {
+	type: InlineEntityType
+	ie: {
+		key: string
+		text: string
+		url: string
+		is_trusted?: boolean
+		reference_id?: number
+		width?: string | null
+		height?: string | null
+		font_height?: string | null
+		padding?: string | null
+	}
+}
+
+/**
+ * Rewrite WhatsApp-GenAI markdown placeholders (`[label](url)`, `[](url)`, `[tex](<url>)`) into
+ * `{{KEY}}value{{/KEY}}` sentinel tags plus the parallel `inline_entities` list the client renders.
+ * The sentinel tags stay in the text so the WhatsApp client can splice the rich item back in.
+ */
+export const extractIE = (
+	text: string,
+	{ extract = true, hyperlink = true, citation = true, latex = true }: ExtractEntityOptions = {}
+): { text: string; ie: ExtractedEntity[]; inline_entities: ExtractedInlineEntity[] } => {
+	if (!text || typeof text !== 'string' || !extract) {
+		return { text: text ?? '', ie: [], inline_entities: [] }
+	}
+
+	const createIE = (type: InlineEntityType, entity: ExtractedEntity['ie']): ExtractedInlineEntity | null => {
+		if (type === 'hyperlink') {
+			return {
+				key: entity.key,
+				metadata: {
+					display_name: entity.text,
+					is_trusted: entity.is_trusted,
+					url: entity.url,
+					__typename: 'GenAIInlineLinkItem'
+				}
+			}
+		}
+
+		if (type === 'citation') {
+			return {
+				key: entity.key,
+				metadata: {
+					reference_id: entity.reference_id,
+					reference_url: entity.url,
+					reference_title: entity.url,
+					reference_display_name: entity.url,
+					sources: [],
+					__typename: 'GenAISearchCitationItem'
+				}
+			}
+		}
+
+		if (type === 'latex') {
+			return {
+				key: entity.key,
+				metadata: {
+					latex_expression: entity.text,
+					latex_image: {
+						url: entity.url,
+						width: Number(entity.width) || 100,
+						height: Number(entity.height) || 100
+					},
+					font_height: Number(entity.font_height) || 83.333333333333,
+					padding: Number(entity.padding) || 15,
+					__typename: 'GenAILatexItem'
+				}
+			}
+		}
+
+		return null
+	}
+
+	const ie: ExtractedEntity[] = []
+	const inline_entities: ExtractedInlineEntity[] = []
+	let result = ''
+	let last = 0
+	let citationIndex = 1
+	let hyperlinkIndex = 0
+	let latexIndex = 0
+	const stack: number[] = []
+
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] === '[' && text[i - 1] !== '\\') {
+			stack.push(i)
+			continue
+		}
+
+		if (text[i] !== ']' || text[i - 1] === '\\') continue
+
+		const open = text[i + 1]
+		if (open !== '(' && open !== '<') {
+			stack.pop()
+			continue
+		}
+
+		const start = stack.pop()
+		if (start == null) continue
+
+		const close = open === '(' ? ')' : '>'
+		const type = open === '(' ? 'link' : 'latex'
+		let end = i + 2
+		let depth = 1
+
+		while (end < text.length && depth > 0) {
+			if (text[end] === open && text[end - 1] !== '\\') depth++
+			else if (text[end] === close && text[end - 1] !== '\\') depth--
+			end++
+		}
+
+		if (depth > 0) continue
+
+		const raw = text.slice(start + 1, i).trim()
+		let url = text.slice(i + 2, end - 1).trim()
+
+		let key: string
+		let tag: string
+		let data: ExtractedEntity
+
+		if (type === 'latex') {
+			if (!latex) continue
+			const [txt = '', width = null, height = null, font_height = null, padding = null] = raw.split('|')
+			key = `LATEX_${latexIndex++}`
+			tag = `{{${key}}}${txt || 'image'}{{/${key}}}`
+			data = { type: 'latex', ie: { key, text: txt, url, width, height, font_height, padding } }
+		} else if (raw) {
+			if (!hyperlink) continue
+			const isTrusted = !url.startsWith('!')
+			if (!isTrusted) url = url.slice(1)
+			key = `HYPERLINK_${hyperlinkIndex++}`
+			tag = `{{${key}}}${url}{{/${key}}}`
+			data = { type: 'hyperlink', ie: { key, text: raw, url, is_trusted: isTrusted } }
+		} else {
+			if (!citation) continue
+			key = `CITATION_${citationIndex - 1}`
+			tag = `{{${key}}}${url}{{/${key}}}`
+			data = { type: 'citation', ie: { reference_id: citationIndex++, key, text: '', url } }
+		}
+
+		result += text.slice(last, start) + tag
+		last = end
+
+		ie.push(data)
+		const entity = createIE(data.type, data.ie)
+		if (entity) inline_entities.push(entity)
+
+		i = end - 1
+	}
+
+	result += text.slice(last)
+
+	return { text: result, ie, inline_entities }
+}
+
 export const generateMarkdownContent = (
 	text: string,
 	quoted?: unknown,
-	options: { botJid?: string; mentions?: string[] } = {}
+	options: {
+		botJid?: string
+		mentions?: string[]
+		extract?: boolean
+		hyperlink?: boolean
+		citation?: boolean
+		latex?: boolean
+	} = {}
 ): RichContentResult => {
+	const { text: extractedText, inline_entities } = extractIE(text, options)
+
 	const submessages = [{ messageType: RichSubMessageType.TEXT, messageText: text }]
 
-	const sections = submessages
-		.map(sm => {
-			if (sm.messageType === RichSubMessageType.TEXT) {
-				return {
-					view_model: {
-						primitive: { text: sm.messageText, __typename: 'GenAIMarkdownTextUXPrimitive' },
-						__typename: 'GenAISingleLayoutViewModel'
-					}
-				}
+	const primitive: Record<string, unknown> = {
+		text: extractedText,
+		__typename: 'GenAIMarkdownTextUXPrimitive'
+	}
+	if (inline_entities.length > 0) primitive.inline_entities = inline_entities
+
+	const sections = [
+		{
+			view_model: {
+				primitive,
+				__typename: 'GenAISingleLayoutViewModel'
 			}
-			return null
-		})
-		.filter(Boolean)
+		}
+	]
 
 	const unifiedResponse = {
 		data: Buffer.from(JSON.stringify({ response_id: randomUUID(), sections }))
@@ -315,7 +501,16 @@ export const generateUnifiedResponseContent = (
 export const generateRichMessageContent = (
 	submessages: unknown[],
 	quoted?: unknown,
-	options: { botJid?: string; mentions?: string[]; useMarkdown?: boolean; unifiedResponse?: { data: Uint8Array } } = {}
+	options: {
+		botJid?: string
+		mentions?: string[]
+		useMarkdown?: boolean
+		unifiedResponse?: { data: Uint8Array }
+		extract?: boolean
+		hyperlink?: boolean
+		citation?: boolean
+		latex?: boolean
+	} = {}
 ): RichContentResult => {
 	const ctxInfo = buildRichContextInfo(quoted as never, options)
 
@@ -331,20 +526,32 @@ export const generateRichMessageContent = (
 					imageMetadata?: { imageUrl?: { imageHighResUrl?: string; imagePreviewUrl?: string } }
 				}
 				if (s.messageType === RichSubMessageType.TEXT) {
+					const { text, inline_entities } = extractIE(s.messageText ?? '', options)
+					const primitive: Record<string, unknown> = { text, __typename: 'GenAIMarkdownTextUXPrimitive' }
+					if (inline_entities.length > 0) primitive.inline_entities = inline_entities
 					return {
 						view_model: {
-							primitive: { text: s.messageText, __typename: 'GenAIMarkdownTextUXPrimitive' },
+							primitive,
 							__typename: 'GenAISingleLayoutViewModel'
 						}
 					}
 				}
 				if (s.messageType === RichSubMessageType.TABLE && s.tableMetadata) {
+					const rows = s.tableMetadata.rows.map(r => {
+						const cells = (r.items ?? []).map(String)
+						const markdown_cells = cells.map(cell => {
+							const { text, inline_entities } = extractIE(cell, options)
+							return inline_entities.length > 0 ? { text, inline_entities } : { text }
+						})
+						return {
+							is_header: !!r.isHeading,
+							cells,
+							...(markdown_cells.some(c => c.inline_entities) ? { markdown_cells } : {})
+						}
+					})
 					return {
 						view_model: {
-							primitive: {
-								rows: s.tableMetadata.rows.map(r => ({ is_header: !!r.isHeading, cells: r.items })),
-								__typename: 'GenATableUXPrimitive'
-							},
+							primitive: { rows, __typename: 'GenATableUXPrimitive' },
 							__typename: 'GenAISingleLayoutViewModel'
 						}
 					}
@@ -390,6 +597,119 @@ export const generateRichMessageContent = (
 		message: buildBotForwardedMessage(submessages, ctxInfo, unifiedResponse),
 		messageId: generateMessageID()
 	}
+}
+
+/** Accept either a raw HTML string or an options object, merging any extra options on top. */
+export const normalizeRichHtmlArgs = (
+	options: string | RichHtmlOptions,
+	additionalOptions: RichHtmlOptions = {}
+): { html: string; opts: RichHtmlOptions } => {
+	if (typeof options === 'string') return { html: options, opts: { ...additionalOptions } }
+	if (options && typeof options === 'object') {
+		return { html: options.html ?? '', opts: { ...options, ...additionalOptions } }
+	}
+	throw new Boom('[sendRichHtml] options or html content must be provided', { statusCode: 400 })
+}
+
+export interface RichHtmlOptions {
+	/** prefix for the generated botResponseId; a random UUID is used when omitted */
+	id?: string
+	/** rendered as a text sub-message above the HTML block */
+	title?: string
+	/** text sub-message rendered before the title */
+	headerText?: string
+	/** text sub-message rendered after the HTML block */
+	footer?: string
+	/** the HTML payload; only required when passing the options-object form to `sendRichHtml` */
+	html?: string
+	/** single trusted source identifier; superseded by `trustedSources` */
+	source?: string
+	/** sources the client is allowed to load resources from */
+	trustedSources?: string | string[]
+	/** GenAI primitive name; override only for client builds expecting another renderer */
+	typename?: string
+	botJid?: string
+	mentions?: string[]
+}
+
+/**
+ * Build a GenAI interactive-HTML payload: the raw HTML travels inside `unifiedResponse.data` under an
+ * HTML primitive, which is what makes the WhatsApp client render it as a live web view rather than text.
+ * `botResponseId` in `messageContextInfo` must match the payload's `response_id` or the client drops the render.
+ */
+export const generateRichHtmlContent = (
+	html: string,
+	quoted?: unknown,
+	options: RichHtmlOptions = {}
+): RichContentResult => {
+	const { id, title, headerText, footer, source, trustedSources, typename } = options
+	const responseId = id ? `${id}-${Date.now()}` : randomUUID()
+	const trusted = trustedSources
+		? Array.isArray(trustedSources)
+			? trustedSources
+			: [trustedSources]
+		: source
+			? [source]
+			: []
+
+	const submessages: unknown[] = []
+	if (headerText) submessages.push(textSub(headerText))
+	if (title) submessages.push(textSub(title))
+	if (footer) submessages.push(textSub(footer))
+
+	const unifiedResponse = {
+		data: Buffer.from(
+			JSON.stringify({
+				response_id: responseId,
+				sections: [
+					{
+						view_model: {
+							primitive: {
+								__typename: typename ?? 'GenAIaeacdsnwHtmlPrimitive',
+								payload: html,
+								trusted_sources: trusted
+							},
+							__typename: 'GenAISingleLayoutViewModel'
+						}
+					}
+				]
+			})
+		)
+	}
+
+	const botMsg = buildBotForwardedMessage(
+		submessages,
+		buildRichContextInfo(quoted as never, options),
+		unifiedResponse
+	)
+
+	const message: proto.IMessage = {
+		messageContextInfo: {
+			deviceListMetadata: {},
+			deviceListMetadataVersion: 2,
+			botMetadata: {
+				messageDisclaimerText: '',
+				botResponseId: responseId
+			}
+		},
+		...botMsg
+	}
+
+	return { message, messageId: generateMessageID() }
+}
+
+/** Standalone variant of `sock.sendRichHtml` for callers holding a socket instance. */
+export const sendRichHtml = async (
+	socket: { relayMessage: (jid: string, message: proto.IMessage, options: MessageRelayOptions) => Promise<unknown> },
+	jid: string,
+	options: string | RichHtmlOptions,
+	quoted?: WAMessage,
+	relayOptions: MessageRelayOptions = {}
+): Promise<RichContentResult> => {
+	const { html, opts } = normalizeRichHtmlArgs(options, {})
+	const { message, messageId } = generateRichHtmlContent(html, quoted, opts)
+	await socket.relayMessage(jid, message, { messageId, ...relayOptions })
+	return { message, messageId }
 }
 
 /** Render LaTeX to a PNG using the codecogs online API */

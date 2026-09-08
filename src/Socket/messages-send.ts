@@ -45,12 +45,15 @@ import {
 	generateLatexImageContent,
 	generateListContent,
 	generateMarkdownContent,
+	generateRichHtmlContent,
 	generateRichMessageContent,
 	generateTableContent,
 	generateUnifiedResponseContent,
+	normalizeRichHtmlArgs,
 	renderLatexToPng,
 	type LatexExpression,
 	type RenderLatexFn,
+	type RichHtmlOptions,
 	type UploadFn
 } from '../Utils/message-composer'
 import { getUrlInfo } from '../Utils/link-preview'
@@ -1457,7 +1460,14 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			jid: string,
 			text: string,
 			quoted?: WAMessage,
-			options: { botJid?: string; mentions?: string[] } = {}
+			options: {
+				botJid?: string
+				mentions?: string[]
+				extract?: boolean
+				hyperlink?: boolean
+				citation?: boolean
+				latex?: boolean
+			} = {}
 		) => {
 			const { message, messageId } = generateMarkdownContent(text, quoted, options)
 			await relayMessage(jid, message, { messageId })
@@ -1472,9 +1482,24 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				mentions?: string[]
 				useMarkdown?: boolean
 				unifiedResponse?: { data: Uint8Array }
+				extract?: boolean
+				hyperlink?: boolean
+				citation?: boolean
+				latex?: boolean
 			} = {}
 		) => {
 			const { message, messageId } = generateRichMessageContent(submessages, quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+		sendRichHtml: async (
+			jid: string,
+			options: string | RichHtmlOptions,
+			quoted?: WAMessage,
+			additionalOptions: Partial<RichHtmlOptions> = {}
+		) => {
+			const { html, opts } = normalizeRichHtmlArgs(options, additionalOptions)
+			const { message, messageId } = generateRichHtmlContent(html, quoted, opts)
 			await relayMessage(jid, message, { messageId })
 			return { message, messageId }
 		},

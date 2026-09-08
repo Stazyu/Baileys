@@ -1064,8 +1064,9 @@ await sock.sendList(jid, 'Menu', ['Fried Rice', 'Ice Tea'])
 // Syntax-highlighted code block
 await sock.sendCodeBlock(jid, 'console.log("Hello World")', null, { title: 'Example', language: 'javascript' })
 
-// Markdown formatted natively
-await sock.sendMarkdown(jid, '# H1\n## H2\n==Highlighted==\n_Italics_ and **Bold**!')
+// Markdown formatted natively; [label](url) becomes a clickable GenAI link,
+// [](url) a citation, and [expr|w|h]<imgUrl> inline LaTeX
+await sock.sendMarkdown(jid, '# H1\n## H2\n==Highlighted==\n_Italics_ and **Bold**!\nVisit [Docs](https://baileys.wiki)')
 
 // LaTeX expression rendered to an image
 await sock.sendLatexImage(jid, null, 'E=mc^2')
@@ -1074,12 +1075,23 @@ await sock.sendLatexInlineImage(jid, null, { formula: 'x = \\frac{-b \\pm \\sqrt
 // Raw rich sub-messages
 await sock.sendRichMessage(jid, [{ messageType: 2, messageText: 'Hello' }])
 
+// GenAI interactive HTML (rendered as a live web view by the WhatsApp client)
+await sock.sendRichHtml(jid, {
+    id: 'dashboard-001',
+    title: 'Sales Dashboard',
+    html: '<div style="padding: 16px; background: #0f172a; color: #fff; border-radius: 12px;">…</div>',
+    source: 'dashboard_service' // or trustedSources: ['a', 'b']
+})
+
+// Raw HTML string form, with extra options merged in
+await sock.sendRichHtml(jid, '<b>Hello</b>', undefined, { title: 'Card' })
+
 // Capture + replay a unified response
 const captured = sock.captureUnifiedResponse(receivedMessage.message)
 await sock.sendUnifiedResponse(jid, undefined, captured)
 ```
 
-Low-level composers are also exported from [`message-composer`](src/Utils/message-composer.ts:1): [`generateTableContent`](src/Utils/message-composer.ts:90), [`generateCodeBlockContent`](src/Utils/message-composer.ts:131), [`generateLatexImageContent`](src/Utils/message-composer.ts:192), [`generateMarkdownContent`](src/Utils/message-composer.ts:259), and [`generateRichMessageContent`](src/Utils/message-composer.ts:315).
+Low-level composers are also exported from [`message-composer`](src/Utils/message-composer.ts:1): [`generateTableContent`](src/Utils/message-composer.ts:90), [`generateCodeBlockContent`](src/Utils/message-composer.ts:131), [`generateLatexImageContent`](src/Utils/message-composer.ts:192), [`generateMarkdownContent`](src/Utils/message-composer.ts:433), [`generateRichHtmlContent`](src/Utils/message-composer.ts:640), and [`generateRichMessageContent`](src/Utils/message-composer.ts:501). A standalone [`sendRichHtml`](src/Utils/message-composer.ts:702) is exported too, for callers that hold a socket instance: `await sendRichHtml(sock, jid, { html, title })`.
 
 ## Interactive Messages
 
