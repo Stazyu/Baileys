@@ -1,7 +1,23 @@
-﻿<h1 align='center'><img alt="Baileys logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" height="75"/></h1>
+﻿<h1 align="center">
+  <img alt="Baileys logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" height="96" /><br/>
+  <code>@stazyu/baileys</code>
+</h1>
 
-<div align='center'>Baileys is a WebSockets-based TypeScript library for interacting with the WhatsApp Web API.</div>
+<p align="center">
+  <b>A lightweight fork of Baileys with practical fixes and small but meaningful improvements for WhatsApp Web.</b><br/>
+  Talks to the WhatsApp Web protocol directly over a <b>WebSocket</b> — no browser, no Selenium, ~half a gig of RAM saved.<br/>
+  Full multi-device & web support, typed end to end.
+</p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@stazyu/baileys"><img alt="npm version" src="https://img.shields.io/npm/v/%40stazyu%2Fbaileys?logo=npm&logoColor=white"/></a>
+  <a href="https://www.npmjs.com/package/@stazyu/baileys"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40stazyu%2Fbaileys"/></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/npm/l/%40stazyu%2Fbaileys"/></a>
+  <img alt="node" src="https://img.shields.io/badge/Node.js-%E2%89%A520-brightgreen?logo=nodedotjs&logoColor=white"/>
+  <img alt="typescript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white"/>
+  <a href="https://discord.gg/WeJM5FP9GG"><img alt="discord" src="https://img.shields.io/badge/Discord-join-5865f2?logo=discord&logoColor=white"/></a>
+  <a href="https://baileys.wiki"><img alt="docs" src="https://img.shields.io/badge/docs-baileys.wiki-4b32c3"/></a>
+</p>
 
 > [!CAUTION]
 > NOTICE OF BREAKING CHANGE.
@@ -10,58 +26,26 @@
 >
 > Please check out https://whiskey.so/migrate-latest for more information.
 
-# Important Note
-This is a temporary README.md, the new guide is in development and will this file will be replaced with .github/README.md (already a default on GitHub).
+## Highlights
 
-New guide link: https://baileys.wiki
+Everything below works out of the box — each link jumps to a copy-pasteable example.
 
-# Get Support
+| Feature | Docs |
+|---|---|
+| 📞 Voice & video calls — play MP3/MP4 to the callee over WhatsApp's real calling stack | [`VoipClient`](#voice--video-calls-voip) |
+| 🤖 Meta AI-style rich responses — tables, code blocks, Markdown, LaTeX, GenAI HTML | [`sendTable` / `sendMarkdown` / `sendRichHtml`](#rich-ai-responses) |
+| 🔘 Interactive messages — quick-reply, URL, copy-code, call buttons & lists | [builders](#interactive-messages) |
+| 🎨 Sticker packs delivered as a single WhatsApp pack | [sticker pack](#sticker-pack-message) |
+| 🔁 Auto-reply rules, message scheduler, anti-delete recovery | [auto-reply](#auto-reply-system) · [scheduler](#message-scheduler) · [anti-delete](#anti-delete-system) |
+| 🔎 Relevance-ranked message search & `{{variable}}` templates | [search](#message-search) · [templates](#message-templates) |
+| 🗂 Auth state in files, MongoDB or any cache store | [sessions](#saving--restoring-sessions) |
+| 🧭 JID/LID parsing & plotting utilities | [helpers](#jid-plotting--lid-support) |
 
-If you'd like business to enterprise-level support from Rajeh, the current maintainer of Baileys, you can book a video chat. Book a 1 hour time slot by contacting him on Discord or pre-ordering [here](https://purpshell.dev/book). The earlier you pre-order the better, as his time slots usually fill up very quickly. He offers immense value per hour and will answer all your questions before the time runs out.
+## Quick Start
 
-If you are a business, we encourage you to contribute back to the high development costs of the project and to feed the maintainers who dump tens of hours a week on this. You can do so by booking meetings or sponsoring below. All support, even in bona fide / contribution hours, is welcome by businesses of all sizes. This is not condoning or endorsing businesses to use the library. See the Disclaimer below.
-
-# Sponsor
-If you'd like to financially support this project, you can do so by supporting the current maintainer [here](https://purpshell.dev/sponsor).
-
-# Disclaimer
-This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates.
-The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well as related names, marks, emblems and images are registered trademarks of their respective owners.
-
-The maintainers of Baileys do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
-Use at your own discretion. Do not spam people with this. We discourage any stalkerware, bulk or automated messaging usage.
-
-##
-
-- Baileys does not require Selenium or any other browser to be interface with WhatsApp Web, it does so directly using a **WebSocket**.
-- Not running Selenium or Chromium saves you like **half a gig** of ram :/
-- Baileys supports interacting with the multi-device & web versions of WhatsApp.
-- Thank you to [@pokearaujo](https://github.com/pokearaujo/multidevice) for writing his observations on the workings of WhatsApp Multi-Device. Also, thank you to [@Sigalor](https://github.com/sigalor/whatsapp-web-reveng) for writing his observations on the workings of WhatsApp Web and thanks to [@Rhymen](https://github.com/Rhymen/go-whatsapp/) for the __go__ implementation.
-
-> [!IMPORTANT]
-> The original repository had to be removed by the original author - we now continue development in this repository here.
-This is the only official repository and is maintained by the community.
-> **Join the Discord [here](https://discord.gg/WeJM5FP9GG)**
-
-## Example
-
-Do check out & run [example.ts](Example/example.ts) to see an example usage of the library.
-The script covers most common use cases.
-To run the example script, download or clone the repo and then type the following in a terminal:
-1. ``` cd path/to/Baileys ```
-2. ``` yarn ```
-3. ``` yarn example ```
-
-## Install
-
-Use the stable version:
-```
-yarn add @stazyu/baileys
-```
-
-Use the edge version (no guarantee of stability, but latest fixes + features)
-```
-yarn add github:Stazyu/Baileys
+```bash
+yarn add @stazyu/baileys        # stable
+yarn add github:Stazyu/Baileys  # edge — latest fixes + features, no stability guarantee
 ```
 
 Then import your code using:
@@ -69,10 +53,54 @@ Then import your code using:
 import makeWASocket from '@stazyu/baileys'
 ```
 
-# Links
+A bot that replies to every incoming message:
+```ts
+import makeWASocket, { useMultiFileAuthState } from '@stazyu/baileys'
 
-- [Discord](https://discord.gg/WeJM5FP9GG)
-- [Docs](https://baileys.wiki/docs/intro/)
+const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
+const sock = makeWASocket({ auth: state, printQRInTerminal: true })
+
+sock.ev.on('creds.update', saveCreds)
+
+sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const msg of messages) {
+        if (!msg.message || msg.key.fromMe) continue
+        await sock.sendMessage(msg.key.remoteJid!, { text: 'Hello World!' })
+    }
+})
+```
+
+Run it, scan the printed QR code with WhatsApp on your phone, and you're connected.
+For a fuller walkthrough — reconnect handling, session storage, every event — see [Example to Start](#example-to-start), or run the reference script which covers most common use cases:
+
+```bash
+git clone https://github.com/Stazyu/Baileys && cd Baileys
+yarn
+yarn example
+```
+
+## Community & Docs
+
+- 💬 **[Discord](https://discord.gg/WeJM5FP9GG)** — questions, setup help and protocol chatter
+- 📖 **[baileys.wiki](https://baileys.wiki/docs/intro/)** — guides and the full API reference: [SocketConfig](https://baileys.wiki/docs/api/type-aliases/SocketConfig/), [events](https://baileys.wiki/docs/api/type-aliases/BaileysEventMap/), [message content](https://baileys.wiki/docs/api/type-aliases/AnyMessageContent/)
+
+> [!IMPORTANT]
+> The original repository had to be removed by the original author — upstream development continues at [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys), maintained by the community.
+> This package is a fork of it: it tracks upstream while adding the features listed in [Highlights](#highlights).
+
+## Acknowledgments
+
+- Thank you to [@pokearaujo](https://github.com/pokearaujo/multidevice) for writing his observations on the workings of WhatsApp Multi-Device.
+- Thank you to [@Sigalor](https://github.com/sigalor/whatsapp-web-reveng) for writing his observations on the workings of WhatsApp Web.
+- Thanks to [@Rhymen](https://github.com/Rhymen/go-whatsapp/) for the __go__ implementation.
+
+## Disclaimer
+
+This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates.
+The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well as related names, marks, emblems and images are registered trademarks of their respective owners.
+
+The maintainers of Baileys do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
+Use at your own discretion. Do not spam people with this. We discourage any stalkerware, bulk or automated messaging usage.
 
 # Index
 
@@ -134,7 +162,7 @@ import makeWASocket from '@stazyu/baileys'
     - [Thumbnail in Media Messages](#thumbnail-in-media-messages)
     - [Downloading Media Messages](#downloading-media-messages)
     - [Re-upload Media Message to Whatsapp](#re-upload-media-message-to-whatsapp)
-- [Reject Call](#reject-call)
+- [Voice & Video Calls (VoIP)](#voice--video-calls-voip)
 - [Send States in Chat](#send-states-in-chat)
     - [Reading Messages](#reading-messages)
     - [Update Presence](#update-presence)
@@ -476,7 +504,7 @@ const sock = makeWASocket()
 const autoReply = createAutoReply(
     // Wire sendMessage
     (jid, content, opts) => sock.sendMessage(jid, content, opts),
-    // Wire sendPresence â€” required for simulateTyping
+    // Wire sendPresence — required for simulateTyping
     (jid, presence) => sock.sendPresenceUpdate(presence, jid),
     {
         simulateTyping: true,
@@ -487,7 +515,7 @@ const autoReply = createAutoReply(
 
 autoReply.addRule({
     keywords: ['hi', 'hello', 'hey'],
-    response: { text: 'Hello! How can I help? ðŸ‘‹' },
+    response: { text: 'Hello! How can I help? 👋' },
     quoted: true
 })
 
@@ -523,10 +551,10 @@ const scheduler = createMessageScheduler(
 )
 
 // At a specific time
-scheduler.schedule('6281234567890@s.whatsapp.net', { text: 'Happy Birthday! ðŸŽ‚' }, new Date('2026-12-25T09:00:00'))
+scheduler.schedule('6281234567890@s.whatsapp.net', { text: 'Happy Birthday! 🎂' }, new Date('2026-12-25T09:00:00'))
 
 // After a delay
-scheduler.scheduleDelay(jid, { text: 'Reminder â°' }, 30 * 60 * 1000)
+scheduler.scheduleDelay(jid, { text: 'Reminder ⏰' }, 30 * 60 * 1000)
 ```
 
 Manage entries with [`cancel`](src/Utils/scheduling.ts:91), [`cancelForJid`](src/Utils/scheduling.ts:102), [`getPending`](src/Utils/scheduling.ts:115), [`stop`](src/Utils/scheduling.ts:173), and [`clearAll`](src/Utils/scheduling.ts:125). The scheduler is in-memory only.
@@ -602,10 +630,10 @@ The store also provides some simple functions such as `loadMessages` that utiliz
 
 Baileys also exports a [`Store`](src/Store/index.ts:1) barrel with the following reusable pieces:
 
-- [`makeInMemoryStore`](src/Store/make-in-memory-store.ts:114) â€” the in-memory chat/contact/message store used above.
-- [`makeOrderedDictionary`](src/Store/make-ordered-dictionary.ts:15) â€” insertion-ordered dictionary keyed by an id getter.
-- [`ObjectRepository`](src/Store/object-repository.ts:1) â€” generic entity repository with find/upsert/delete helpers.
-- [`makeCacheManagerAuthState`](src/Store/make-cache-manager-store.ts:12) â€” auth state backed by a [`CacheStore`](src/Types/Socket.ts:13)-compatible cache.
+- [`makeInMemoryStore`](src/Store/make-in-memory-store.ts:114) — the in-memory chat/contact/message store used above.
+- [`makeOrderedDictionary`](src/Store/make-ordered-dictionary.ts:15) — insertion-ordered dictionary keyed by an id getter.
+- [`ObjectRepository`](src/Store/object-repository.ts:1) — generic entity repository with find/upsert/delete helpers.
+- [`makeCacheManagerAuthState`](src/Store/make-cache-manager-store.ts:12) — auth state backed by a [`CacheStore`](src/Types/Socket.ts:13)-compatible cache.
 
 ```ts
 import { makeOrderedDictionary, ObjectRepository } from '@stazyu/baileys'
@@ -871,7 +899,7 @@ await sock.sendMessage(
     jid,
     {
         react: {
-            text: 'ðŸ’–', // use an empty string to remove the reaction
+            text: '💖', // use an empty string to remove the reaction
             key: message.key
         }
     }
@@ -1112,8 +1140,8 @@ import {
 await sock.sendMessage(jid, generateQuickReplyButtons(
     'Please select an option:',
     [
-        { id: 'btn-1', displayText: 'âœ… Accept' },
-        { id: 'btn-2', displayText: 'âŒ Reject' }
+        { id: 'btn-1', displayText: '✅ Accept' },
+        { id: 'btn-2', displayText: '❌ Reject' }
     ],
     { footer: 'Powered by Baileys' }
 ))
@@ -1121,26 +1149,26 @@ await sock.sendMessage(jid, generateQuickReplyButtons(
 // URL button
 await sock.sendMessage(jid, generateUrlButtonMessage(
     'Visit our website for more info',
-    [{ displayText: 'ðŸŒ Open Website', url: 'https://example.com' }]
+    [{ displayText: '🌐 Open Website', url: 'https://example.com' }]
 ))
 
 // Copy code button
-await sock.sendMessage(jid, generateCopyCodeButton('Your OTP is:', '123456', 'ðŸ“‹ Copy Code'))
+await sock.sendMessage(jid, generateCopyCodeButton('Your OTP is:', '123456', '📋 Copy Code'))
 
 // Combined buttons (url / reply / copy / call)
 await sock.sendMessage(jid, generateCombinedButtons(
     'Choose an action:',
     [
-        { type: 'reply', displayText: 'ðŸ›’ Order Now', id: 'order' },
-        { type: 'url', displayText: 'ðŸŒ Website', url: 'https://example.com' },
-        { type: 'call', displayText: 'ðŸ“ž Phone', phoneNumber: '+6281234567890' },
-        { type: 'copy', displayText: 'ðŸ“‹ Copy Promo', copyCode: 'PROMO2024' }
+        { type: 'reply', displayText: '🛒 Order Now', id: 'order' },
+        { type: 'url', displayText: '🌐 Website', url: 'https://example.com' },
+        { type: 'call', displayText: '📞 Phone', phoneNumber: '+6281234567890' },
+        { type: 'copy', displayText: '📋 Copy Promo', copyCode: 'PROMO2024' }
     ]
 ))
 
 // Interactive list
 await sock.sendMessage(jid, generateInteractiveListMessage({
-    title: 'ðŸ“‹ Product Menu',
+    title: '📋 Product Menu',
     buttonText: 'View Menu',
     sections: [
         { title: 'Food', rows: [{ rowId: 'nasi-goreng', title: 'Fried Rice', description: '$2.50' }] }
@@ -1214,13 +1242,68 @@ sock.ev.on('messages.upsert', async ({ [m] }) => {
 await sock.updateMediaMessage(msg)
 ```
 
-## Reject Call
+## Voice & Video Calls (VoIP)
 
-- You can obtain `callId` and `callFrom` from `call` event
+Place real WhatsApp voice and video calls from Node.js. The SDK wraps WhatsApp Web's official VoIP WASM stack and routes signaling through your Baileys socket — the callee sees a normal WhatsApp call.
 
+> [!NOTE]
+> Decoding the media you play requires `ffmpeg` installed on your system.
+
+Attach to an already connected socket:
 ```ts
-await sock.rejectCall(callId, callFrom)
+import makeWASocket, { VoipClient, useMultiFileAuthState } from '@stazyu/baileys'
+
+const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
+const sock = makeWASocket({ auth: state })
+sock.ev.on('creds.update', saveCreds)
+
+const voip = new VoipClient({ maxConcurrentCalls: 5 })
+await voip.initWithSocket(sock)
+
+// Voice call, playing an audio file to the callee
+const call = await voip.call('6281234567890', {
+    audioSource: './announcement.mp3', // or 'silence'
+    durationMs: 45_000,
+    repeatAudio: true
+})
+
+call.on('ringing', () => console.log('ringing...'))
+call.on('connected', () => console.log('connected'))
+call.on('ended', reason => console.log('ended:', reason))
 ```
+
+Video calls — pass `videoSource` (MP4/MKV/MOV/AVI) with `isVideo`:
+```ts
+const videoCall = await voip.call('6281234567890', {
+    isVideo: true,
+    videoSource: './demo.mp4',
+    audioSource: './demo.mp4',
+    videoWidth: 640,
+    videoHeight: 480,
+    videoFps: 15,
+    videoLoop: true,
+    durationMs: 30_000
+})
+videoCall.on('videoStarted', () => console.log('video streaming'))
+```
+
+Batch calls, lookup and teardown:
+```ts
+const calls = await voip.callMany([
+    { jid: '1234567890@s.whatsapp.net', options: { audioSource: './a1.mp3', durationMs: 30_000 } },
+    { jid: '9876543210@s.whatsapp.net', options: { audioSource: './a2.mp3', durationMs: 45_000 } }
+])
+
+voip.getActiveCalls()   // CallSummary[]
+voip.getCall(calls[0].callId)
+voip.endCall(calls[0].callId)
+voip.endAllCalls()
+voip.disconnect()
+```
+
+An `ActiveCall` emits `ringing`, `accepted`, `connected`, `audioReady`, `streaming`, `videoStarted`, `videoEnded`, `videoError`, `stateChange`, `audio` (raw PCM), `ended` and `error`; `call.getSummary()` returns a safe snapshot and `call.mute(true)` / `call.end()` control it.
+
+To reject an incoming call instead, use `sock.rejectCall(callId, callFrom)` — `callId` and `callFrom` come from the `call` event.
 
 ## Send States in Chat
 
